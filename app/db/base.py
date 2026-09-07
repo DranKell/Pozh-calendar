@@ -5,3 +5,4 @@ from app.models.work_type import WorkType
 from app.models.assignment import Assignment
 from app.models.execution import Execution
 from app.models.invoice import Invoice, InvoiceItem
+from app.models.company import Company

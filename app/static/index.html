@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/styles.css?v=pb_neutral3">
+<link rel="stylesheet" href="/static/styles.css?v=bell_read2">
 </head>
 <body>
 <div class="stars" aria-hidden="true"></div>
@@ -48,8 +48,11 @@
         </button>
         <div class="bell-dropdown hidden" id="bellDropdown">
           <div class="bell-head">
-            <div class="bell-title">Напоминания (за 7 дней)</div>
-            <button class="bell-sound-toggle" id="soundToggleBtn" title="Вкл/Выкл звук">🔊</button>
+            <div class="bell-title">Напоминания</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button class="bell-action-link" id="bellMarkAllReadBtn" title="Скрыть все просмотренные напоминания">Прочитано всё</button>
+              <button class="bell-sound-toggle" id="soundToggleBtn" title="Вкл/Выкл звук">🔊</button>
+            </div>
           </div>
           <div class="bell-list" id="bellList">
             <div class="empty" style="padding:16px 8px;font-size:12px;">Нет новых напоминаний</div>
@@ -107,6 +110,6 @@
 </div>
 <div id="toastHost"></div>
 
-<script src="/static/app.js?v=pb_neutral3"></script>
+<script src="/static/app.js?v=bell_read2"></script>
 </body>
 </html>

@@ -20,6 +20,8 @@ from app.services.ai_service import (
     get_expert_rules_recommendations,
     call_llm_advisor,
     get_preset_for_building_type,
+    verify_llm_connection,
+    get_provider_display_name,
 )
 from app.services.periodicity import generate_schedule
 
@@ -47,42 +49,49 @@ class ApplyRecommendationsRequest(BaseModel):
 
 
 @router.get("/config")
-def get_status_config():
-    """Проверка конфигурации ИИ (из msg.cfg)"""
+def get_status_config(check: bool = True):
+    """
+    Проверка конфигурации и реального статуса ИИ (из msg.cfg).
+    Если check=True (по умолчанию), выполняет проверку подключения к API.
+    """
     cfg = load_ai_config()
     enabled = cfg.get("enabled", True)
     has_key = bool(cfg.get("api_key"))
     provider = cfg.get("provider", "auto")
     model = cfg.get("model", "deepseek-chat")
+    display_provider = get_provider_display_name(provider, model)
 
-    if not enabled:
-        status = "disabled"
-        badge_text = "ИИ ВЫКЛЮЧЕН"
-        badge_color = "ember"
-        description = "ИИ отключен в msg.cfg (enabled=false). Заполнение данных производится ВРУЧНУЮ."
-    elif has_key:
-        status = "online_llm"
-        badge_text = f"ОНЛАЙН: {model}"
-        badge_color = "moss"
-        description = f"Подключена внешняя нейросеть ({model}, провайдер: {provider})."
-    else:
-        status = "expert_offline"
-        badge_text = "ОФЛАЙН: НОРМЫ ПБ"
-        badge_color = "amber"
-        description = "Внешний API-ключ не указан. Работает встроенная экспертная база регламентов и норм ПБ."
+    health = verify_llm_connection(cfg, force_check=False)
+
+    active_provider = health.get("provider", provider)
+    active_model = health.get("model", model)
+    display_provider = get_provider_display_name(active_provider, active_model)
+    has_any_key = any(bool(c.get("api_key")) for c in cfg.get("provider_configs", [cfg]))
 
     return {
         "ok": True,
         "enabled": enabled,
-        "status": status,
-        "provider": provider,
-        "model": model,
-        "has_api_key": has_key,
-        "badge_text": badge_text,
-        "badge_color": badge_color,
-        "description": description,
-        "mode": "Нейросеть (" + model + ")" if has_key else "Экспертная система ПБ",
+        "status": health["status"],  # 'online_llm', 'expert_offline', 'disabled', 'error'
+        "is_online": health["is_online"],
+        "provider": active_provider,
+        "provider_display": display_provider,
+        "model": active_model,
+        "has_api_key": has_any_key,
+        "badge_text": health["badge_text"],
+        "badge_color": health["badge_color"],
+        "display_name": health["display_name"],
+        "description": health["description"],
+        "error_detail": health.get("error_detail"),
+        "mode": health["display_name"],
     }
+
+
+@router.post("/health-check")
+def force_health_check():
+    """Принудительная повторная проверка соединения с API нейросети (без кэша)"""
+    cfg = load_ai_config()
+    health = verify_llm_connection(cfg, force_check=True)
+    return {"ok": True, "health": health}
 
 
 @router.post("/preset")
@@ -149,11 +158,16 @@ def analyze_object(req: AnalyzeObjectRequest, db: Session = Depends(get_db)):
         for w in catalog
     ]
 
-    # Если задан API-ключ и провайдер не expert_rules, пробуем LLM
+    # Проверяем реальное подключение к LLM (или цепочке провайдеров)
+    health = verify_llm_connection(ai_cfg, force_check=False)
     result = None
-    if ai_cfg.get("provider") != "expert_rules" and ai_cfg.get("api_key"):
+
+    if health.get("is_online"):
+        active_p_cfg = health.get("active_config", ai_cfg)
+        # Объединяем параметры (температуру, таймаут, системный промпт)
+        merged_cfg = {**ai_cfg, **active_p_cfg}
         result = call_llm_advisor(
-            ai_cfg=ai_cfg,
+            ai_cfg=merged_cfg,
             category=category,
             functional_hazard=fpo,
             fire_hazard_category=fire_cat,

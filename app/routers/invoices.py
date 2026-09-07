@@ -16,6 +16,7 @@ from app.models.object import Object
 from app.models.work_type import WorkType
 from app.models.assignment import Assignment
 from app.models.invoice import Invoice, InvoiceItem
+from app.models.company import Company
 from app.config import CONFIG
 
 router = APIRouter()
@@ -33,6 +34,7 @@ class InvoiceItemIn(BaseModel):
 
 class InvoiceCreate(BaseModel):
     ObjectId: str
+    CompanyId: Optional[str] = None
     AssignmentIds: Optional[List[str]] = []
     Items: Optional[List[InvoiceItemIn]] = []
     IncludeAllDebt: Optional[bool] = False
@@ -48,7 +50,53 @@ class PayIn(BaseModel):
     PaymentRef: Optional[str] = ""
 
 
-def get_company():
+def get_company(db: Optional[Session] = None, company_id: Optional[str] = None) -> dict:
+    if db:
+        if company_id:
+            c = db.query(Company).filter(Company.id == company_id).first()
+            if c:
+                return {
+                    "id": c.id,
+                    "name": c.name,
+                    "inn": c.inn or "",
+                    "kpp": c.kpp or "",
+                    "ogrn": c.ogrn or "",
+                    "address": c.address or "",
+                    "phone": c.phone or "",
+                    "email": c.email or "",
+                    "bank": c.bank or "",
+                    "bik": c.bik or "",
+                    "account": c.account or "",
+                    "corrAccount": c.corr_account or "",
+                    "director": c.director or "",
+                    "accountant": c.accountant or "",
+                    "invoicePrefix": c.invoice_prefix or "СЧ",
+                    "vatRate": c.vat_rate or 0.0,
+                    "isDefault": c.is_default,
+                }
+        default_c = db.query(Company).filter(Company.is_default == True).first()
+        if not default_c:
+            default_c = db.query(Company).first()
+        if default_c:
+            return {
+                "id": default_c.id,
+                "name": default_c.name,
+                "inn": default_c.inn or "",
+                "kpp": default_c.kpp or "",
+                "ogrn": default_c.ogrn or "",
+                "address": default_c.address or "",
+                "phone": default_c.phone or "",
+                "email": default_c.email or "",
+                "bank": default_c.bank or "",
+                "bik": default_c.bik or "",
+                "account": default_c.account or "",
+                "corrAccount": default_c.corr_account or "",
+                "director": default_c.director or "",
+                "accountant": default_c.accountant or "",
+                "invoicePrefix": default_c.invoice_prefix or "СЧ",
+                "vatRate": default_c.vat_rate or 0.0,
+                "isDefault": default_c.is_default,
+            }
     return CONFIG.get("company", {}) if isinstance(CONFIG, dict) else {}
 
 
@@ -62,8 +110,8 @@ def add_business_days(start, days):
     return current
 
 
-def next_number(db):
-    prefix = (get_company().get("invoicePrefix") or "СЧ").strip() or "СЧ"
+def next_number(db, company_dict_data: Optional[dict] = None):
+    prefix = ((company_dict_data or {}).get("invoicePrefix") or get_company(db).get("invoicePrefix") or "СЧ").strip() or "СЧ"
     year = date.today().year
     like = f"{prefix}-{year}-"
     rows = db.query(Invoice).filter(Invoice.number.like(like + "%")).all()
@@ -101,6 +149,7 @@ def compute_status(inv):
 def inv_dict(inv, db):
     obj = db.query(Object).filter(Object.id == inv.object_id).first()
     items = db.query(InvoiceItem).filter(InvoiceItem.invoice_id == inv.id).order_by(InvoiceItem.id).all()
+    comp = get_company(db, getattr(inv, "company_id", None))
     return {
         "ID": inv.id,
         "Number": inv.number,
@@ -110,6 +159,9 @@ def inv_dict(inv, db):
         "ObjectName": obj.name if obj else "",
         "ObjectInn": getattr(obj, "inn", "") if obj else "",
         "ObjectAddress": obj.address if obj else "",
+        "CompanyId": getattr(inv, "company_id", None) or comp.get("id"),
+        "CompanyName": comp.get("name") or "",
+        "CompanyInn": comp.get("inn") or "",
         "Status": compute_status(inv),
         "Subtotal": inv.subtotal or 0,
         "VatRate": inv.vat_rate or 0,
@@ -154,7 +206,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
     if getattr(obj, "status", "") == "Удалён":
         raise HTTPException(400, "Объект удалён")
 
-    comp = get_company()
+    comp = get_company(db, data.CompanyId)
     if not comp.get("name") or not comp.get("inn"):
         raise HTTPException(400, "Заполните реквизиты своей организации: Счета → Наши реквизиты")
 
@@ -202,13 +254,14 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
     if not lines:
         raise HTTPException(400, "Нет позиций для счёта: нет долга по назначениям или не выбраны услуги")
 
-    number = next_number(db)
+    number = next_number(db, comp)
     inv = Invoice(
         id=f"INV-{uuid.uuid4().hex[:8]}",
         number=number,
         date=inv_date,
         due_date=due_date,
         object_id=obj.id,
+        company_id=comp.get("id"),
         status="Выставлен",
         subtotal=0.0,
         vat_rate=vat_rate,
@@ -333,7 +386,7 @@ def print_invoice(iid: str, db: Session = Depends(get_db)):
 
     obj = db.query(Object).filter(Object.id == inv.object_id).first()
     items = db.query(InvoiceItem).filter(InvoiceItem.invoice_id == inv.id).order_by(InvoiceItem.id).all()
-    comp = get_company()
+    comp = get_company(db, getattr(inv, "company_id", None))
 
     logo_html = ""
     if (STATIC_DIR / "logo.png").exists():
@@ -453,7 +506,7 @@ def print_act(iid: str, db: Session = Depends(get_db)):
 
     obj = db.query(Object).filter(Object.id == inv.object_id).first()
     items = db.query(InvoiceItem).filter(InvoiceItem.invoice_id == inv.id).order_by(InvoiceItem.id).all()
-    comp = get_company()
+    comp = get_company(db, getattr(inv, "company_id", None))
 
     logo_html = ""
     if (STATIC_DIR / "logo.png").exists():

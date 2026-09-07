@@ -16,6 +16,7 @@ class Invoice(Base, TimestampMixin):
     date: Mapped[date_type] = mapped_column(Date, index=True)
     due_date: Mapped[Optional[date_type]] = mapped_column(Date, nullable=True)
     object_id: Mapped[str] = mapped_column(String(50), ForeignKey("objects.id"), index=True)
+    company_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("companies.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(50), default="Выставлен")
     subtotal: Mapped[float] = mapped_column(Float, default=0)
     vat_rate: Mapped[float] = mapped_column(Float, default=0)

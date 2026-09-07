@@ -69,7 +69,10 @@ function statusBadge(st, isOverdue) {
   return '<span class="badge ' + (map[st] || "b-plan") + '">' + esc(st) + "</span>";
 }
 function freqBadge(f) { return '<span class="badge b-freq">' + esc(f || "—") + "</span>"; }
-function kv(k, v) { return '<div><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + "</div></div>"; }
+function kv(k, v, isHtml) {
+  const val = isHtml || (typeof v === "string" && v.includes("<span")) ? v : esc(v);
+  return '<div><div class="k">' + esc(k) + '</div><div class="v">' + val + "</div></div>";
+}
 function selectHtml(id, items, selected, allLabel) {
   return '<select class="inp" id="' + id + '"><option value="">' + allLabel + "</option>" +
     items.map(it => '<option value="' + esc(it.value) + '"' + (String(it.value) === String(selected) ? " selected" : "") + ">" + esc(it.label) + "</option>").join("") +
@@ -1067,6 +1070,7 @@ async function loadInvoices() {
     return `<tr>
       <td class="mono">${esc(i.Number)}<div class="sub">${fmtDate(i.Date)}</div></td>
       <td><b>${esc(i.ObjectName)}</b></td>
+      <td><div style="font-size:12.5px;color:var(--text)">${esc(i.CompanyName || "—")}</div>${i.CompanyInn ? `<div class="sub">ИНН ${esc(i.CompanyInn)}</div>` : ""}</td>
       <td class="mono">${fmtMoney(i.Total)}<div class="sub">НДС: ${i.VatRate ? i.VatRate + "%" : "без НДС"}</div></td>
       <td class="mono">${fmtMoney(i.PaidAmount)} / ${fmtMoney(i.Total)}</td>
       <td>${invStatusBadge(i.Status)}</td>
@@ -1085,13 +1089,13 @@ async function loadInvoices() {
     <div class="toolbar">
       <button class="btn btn-amber" data-action="inv-new">+ Новый счёт</button>
       <div class="search-box"><input type="text" class="inp" id="invSearch" placeholder="Поиск счетов…"></div>
-      <button class="btn btn-ghost" data-action="inv-settings">🏛 Наши реквизиты</button>
+      <button class="btn btn-ghost" data-action="inv-settings">🏛 Организации и реквизиты</button>
       <span class="toolbar-hint">Всего: <span id="invCount">${r.data.length}</span></span>
     </div>
     <div class="panel table-panel">
       <table id="invoicesTable">
-        <thead><tr><th>№ / дата</th><th>Объект</th><th>Сумма</th><th>Оплачено</th><th>Статус</th><th>Срок</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7"><div class="empty"><span class="big">💸</span>Счетов пока нет</div></td></tr>'}</tbody>
+        <thead><tr><th>№ / дата</th><th>Объект</th><th>Организация</th><th>Сумма</th><th>Оплачено</th><th>Статус</th><th>Срок</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8"><div class="empty"><span class="big">💸</span>Счетов пока нет</div></td></tr>'}</tbody>
       </table>
     </div>`;
 
@@ -1115,12 +1119,14 @@ async function loadInvoices() {
 
 
 async function openInvoiceModal(prefObjectId) {
-  const compRes = await api("/api/settings/company");
-  const c = compRes.ok ? compRes.data : {};
-  if (!c.name || !c.inn) {
-    openCompanySettings("Сначала заполните реквизиты своей организации.");
+  const compRes = await api("/api/companies/");
+  const companies = (compRes.ok && Array.isArray(compRes.data)) ? compRes.data : [];
+  if (!companies.length) {
+    openCompanySettings("Сначала добавьте хотя бы одну организацию с реквизитами.");
     return;
   }
+
+  const defaultComp = companies.find(x => x.is_default) || companies[0];
 
   if (typeof ensureCaches === "function") await ensureCaches();
   let objs = (typeof objectsCache !== "undefined" && objectsCache.length) ? objectsCache : [];
@@ -1131,12 +1137,19 @@ async function openInvoiceModal(prefObjectId) {
   if (!objs.length) { notice("Сначала добавьте объект", "error"); return; }
 
   const defaultDue = addBusinessDays(todayISO(), 5);
-  const defaultVat = c.vatRate || 0;
+  const defaultVat = defaultComp.vat_rate || 0;
 
   openModal(`
     <div class="modal-head"><div class="modal-title">Новый счёт</div><button class="modal-x" data-action="modal-close">×</button></div>
-    <div class="field"><label>Объект *</label>
-      <select class="inp" id="invObject">${objs.map(o => `<option value="${esc(o.ID)}"${prefObjectId === o.ID ? " selected" : ""}>${esc(o.Name)} — ${esc(o.Address || "")}</option>`).join("")}</select>
+    <div class="grid2">
+      <div class="field"><label>Организация (от кого счёт) *</label>
+        <select class="inp" id="invCompany">
+          ${companies.map(c => `<option value="${esc(c.id)}"${c.id === defaultComp.id ? " selected" : ""}>${esc(c.name)} (ИНН ${esc(c.inn)})${c.is_default ? " — [Основная]" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field"><label>Объект (плательщик) *</label>
+        <select class="inp" id="invObject">${objs.map(o => `<option value="${esc(o.ID)}"${prefObjectId === o.ID ? " selected" : ""}>${esc(o.Name)} — ${esc(o.Address || "")}</option>`).join("")}</select>
+      </div>
     </div>
     <div class="grid2">
       <div class="field"><label>Срок оплаты</label><input type="date" class="inp" id="invDue" value="${defaultDue}"><div class="sub">по умолчанию 5 банковских дней</div></div>
@@ -1158,6 +1171,14 @@ async function openInvoiceModal(prefObjectId) {
       <button class="btn btn-amber" data-action="inv-create">Сформировать счёт</button>
     </div>
   `);
+
+  $("#invCompany").addEventListener("change", e => {
+    const selectedC = companies.find(x => x.id === e.target.value);
+    if (selectedC && $("#invVat")) {
+      const v = Number(selectedC.vat_rate || 0);
+      $("#invVat").value = String(v);
+    }
+  });
 
   $("#invObject").addEventListener("change", loadInvoiceAssignments);
   $("#invAllDebt").addEventListener("change", e => {
@@ -1196,6 +1217,7 @@ async function saveInvoice() {
   const objectId = $("#invObject") ? $("#invObject").value : "";
   if (!objectId) { notice("Выберите объект", "error"); return; }
 
+  const companyId = $("#invCompany") ? $("#invCompany").value : null;
   const includeAll = $("#invAllDebt") ? $("#invAllDebt").checked : false;
   const assignmentIds = includeAll ? [] : $$("#invAssignments input:checked").map(x => x.value);
 
@@ -1206,6 +1228,7 @@ async function saveInvoice() {
 
   const data = {
     ObjectId: objectId,
+    CompanyId: companyId,
     IncludeAllDebt: includeAll,
     AssignmentIds: assignmentIds,
     DueDate: $("#invDue") ? ($("#invDue").value || null) : null,
@@ -1224,49 +1247,172 @@ async function saveInvoice() {
   }
 }
 
+// ===== УПРАВЛЕНИЕ НЕСКОЛЬКИМИ ОРГАНИЗАЦИЯМИ И РЕКВИЗИТАМИ =====
+let companySettingsState = {
+  list: [],
+  selectedId: null,
+  isNew: false
+};
+
 async function openCompanySettings(warn) {
-  const r = await api("/api/settings/company");
-  const c = r.ok ? r.data : {};
+  const r = await api("/api/companies/");
+  const companies = (r.ok && Array.isArray(r.data)) ? r.data : [];
+  companySettingsState.list = companies;
+  companySettingsState.isNew = false;
+
+  const def = companies.find(x => x.is_default) || companies[0];
+  companySettingsState.selectedId = def ? def.id : null;
+
+  renderCompanySettingsModal(warn);
+}
+
+function renderCompanySettingsModal(warn) {
+  const { list, selectedId, isNew } = companySettingsState;
+  const current = isNew ? {
+    id: "",
+    name: "",
+    inn: "",
+    kpp: "",
+    ogrn: "",
+    address: "",
+    phone: "",
+    email: "",
+    bank: "",
+    bik: "",
+    account: "",
+    corr_account: "",
+    director: "",
+    accountant: "",
+    invoice_prefix: "СЧ",
+    vat_rate: 0,
+    is_default: list.length === 0
+  } : (list.find(x => x.id === selectedId) || list[0] || {});
+
+  const tabsHtml = `
+    <div class="comp-tabs">
+      ${list.map(c => `
+        <button type="button" class="comp-tab-btn ${(!isNew && c.id === current.id) ? "active" : ""}" data-comp-select="${esc(c.id)}">
+          🏛 ${esc(c.name || "Без названия")}
+          ${c.is_default ? '<span class="comp-badge-def">Основная</span>' : ""}
+        </button>
+      `).join("")}
+      <button type="button" class="comp-tab-btn ${isNew ? "active" : ""}" data-comp-action="new" style="border-style:dashed;color:var(--amber-2)">
+        + Добавить организацию
+      </button>
+    </div>
+  `;
+
+  const actionsHtml = (!isNew && current.id) ? `
+    <div class="comp-topbar">
+      <div>
+        <b>${esc(current.name)}</b>
+        ${current.is_default ? '<span class="comp-badge-def" style="margin-left:8px">Основная организация для счетов</span>' : ""}
+      </div>
+      <div class="comp-card-actions">
+        ${!current.is_default ? `<button type="button" class="btn btn-ghost btn-sm" data-comp-action="set-default" data-id="${esc(current.id)}">★ Сделать основной</button>` : ""}
+        ${list.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" data-comp-action="delete" data-id="${esc(current.id)}">🗑 Удалить</button>` : ""}
+      </div>
+    </div>
+  ` : `<div class="comp-topbar"><b style="color:var(--amber-2)">Новая организация</b><span class="sub">Заполните реквизиты для выставления счетов</span></div>`;
 
   openModal(`
-    <div class="modal-head"><div class="modal-title">Наши реквизиты</div><button class="modal-x" data-action="modal-close">×</button></div>
+    <div class="modal-head"><div class="modal-title">Организации и реквизиты для счетов</div><button class="modal-x" data-action="modal-close">×</button></div>
+    ${tabsHtml}
+    ${actionsHtml}
+    <input type="hidden" id="cs-id" value="${esc(current.id || "")}">
     <div class="grid2">
-      <div class="field"><label>Название организации *</label><input class="inp" id="cs-name" value="${esc(c.name || "")}"></div>
-      <div class="field"><label>ИНН *</label><input class="inp" id="cs-inn" value="${esc(c.inn || "")}"></div>
+      <div class="field"><label>Название организации *</label><input class="inp" id="cs-name" placeholder="ООО «Пример»" value="${esc(current.name || "")}"></div>
+      <div class="field"><label>ИНН *</label><input class="inp" id="cs-inn" placeholder="10 или 12 цифр" value="${esc(current.inn || "")}"></div>
     </div>
     <div class="grid2">
-      <div class="field"><label>КПП</label><input class="inp" id="cs-kpp" value="${esc(c.kpp || "")}"></div>
-      <div class="field"><label>ОГРН</label><input class="inp" id="cs-ogrn" value="${esc(c.ogrn || "")}"></div>
+      <div class="field"><label>КПП</label><input class="inp" id="cs-kpp" placeholder="9 цифр (для юрлиц)" value="${esc(current.kpp || "")}"></div>
+      <div class="field"><label>ОГРН / ОГРНИП</label><input class="inp" id="cs-ogrn" value="${esc(current.ogrn || "")}"></div>
     </div>
-    <div class="field"><label>Адрес</label><input class="inp" id="cs-address" value="${esc(c.address || "")}"></div>
+    <div class="field"><label>Юридический / фактический адрес</label><input class="inp" id="cs-address" value="${esc(current.address || "")}"></div>
     <div class="grid2">
-      <div class="field"><label>Телефон</label><input class="inp" id="cs-phone" value="${esc(c.phone || "")}"></div>
-      <div class="field"><label>Email</label><input class="inp" id="cs-email" value="${esc(c.email || "")}"></div>
+      <div class="field"><label>Телефон</label><input class="inp" id="cs-phone" value="${esc(current.phone || "")}"></div>
+      <div class="field"><label>Email</label><input class="inp" id="cs-email" value="${esc(current.email || "")}"></div>
     </div>
-    <div class="field"><label>Банк</label><input class="inp" id="cs-bank" value="${esc(c.bank || "")}"></div>
+    <div class="field"><label>Банк</label><input class="inp" id="cs-bank" placeholder="ПАО СБЕРБАНК г. Москва" value="${esc(current.bank || "")}"></div>
     <div class="grid2">
-      <div class="field"><label>БИК</label><input class="inp" id="cs-bik" value="${esc(c.bik || "")}"></div>
-      <div class="field"><label>Расчётный счёт</label><input class="inp" id="cs-account" value="${esc(c.account || "")}"></div>
+      <div class="field"><label>БИК банка</label><input class="inp" id="cs-bik" placeholder="9 цифр" value="${esc(current.bik || "")}"></div>
+      <div class="field"><label>Расчётный счёт</label><input class="inp" id="cs-account" placeholder="20 цифр (40702...)" value="${esc(current.account || "")}"></div>
     </div>
-    <div class="field"><label>Корр. счёт</label><input class="inp" id="cs-corr" value="${esc(c.corrAccount || "")}"></div>
+    <div class="field"><label>Корреспондентский счёт</label><input class="inp" id="cs-corr" placeholder="20 цифр (30101...)" value="${esc(current.corr_account || current.corrAccount || "")}"></div>
     <div class="grid2">
-      <div class="field"><label>Руководитель</label><input class="inp" id="cs-director" value="${esc(c.director || "")}"></div>
-      <div class="field"><label>Бухгалтер</label><input class="inp" id="cs-accountant" value="${esc(c.accountant || "")}"></div>
+      <div class="field"><label>Руководитель (для подписи)</label><input class="inp" id="cs-director" placeholder="Иванов И.И." value="${esc(current.director || "")}"></div>
+      <div class="field"><label>Бухгалтер</label><input class="inp" id="cs-accountant" placeholder="Петрова А.С." value="${esc(current.accountant || "")}"></div>
     </div>
     <div class="grid2">
-      <div class="field"><label>Префикс счетов</label><input class="inp" id="cs-prefix" value="${esc(c.invoicePrefix || "СЧ")}"></div>
-      <div class="field"><label>НДС по умолчанию, %</label><input type="number" class="inp" id="cs-vat" value="${c.vatRate || 0}"></div>
+      <div class="field"><label>Префикс счетов</label><input class="inp" id="cs-prefix" placeholder="СЧ" value="${esc(current.invoice_prefix || current.invoicePrefix || "СЧ")}"></div>
+      <div class="field"><label>НДС по умолчанию, %</label><input type="number" class="inp" id="cs-vat" value="${current.vat_rate !== undefined ? current.vat_rate : (current.vatRate || 0)}"></div>
     </div>
+    <div class="field"><label><input type="checkbox" id="cs-default" ${current.is_default ? "checked" : ""}> Использовать по умолчанию для новых счетов</label></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" data-action="modal-close">Отмена</button>
-      <button class="btn btn-amber" data-action="inv-save-settings">Сохранить реквизиты</button>
+      <button class="btn btn-amber" data-action="inv-save-company">${isNew ? "Создать организацию" : "Сохранить реквизиты"}</button>
     </div>
   `);
+
+  $$("[data-comp-select]").forEach(b => {
+    b.addEventListener("click", () => {
+      companySettingsState.isNew = false;
+      companySettingsState.selectedId = b.dataset.compSelect;
+      renderCompanySettingsModal();
+    });
+  });
+
+  const btnNew = $("[data-comp-action=new]");
+  if (btnNew) {
+    btnNew.addEventListener("click", () => {
+      companySettingsState.isNew = true;
+      renderCompanySettingsModal();
+    });
+  }
+
+  const btnDef = $("[data-comp-action=set-default]");
+  if (btnDef) {
+    btnDef.addEventListener("click", async () => {
+      const cid = btnDef.dataset.id;
+      const res = await api("/api/companies/" + cid + "/set-default", {}, "POST");
+      if (res.ok) {
+        notice("Организация установлена по умолчанию");
+        await openCompanySettings();
+      } else {
+        notice(res.detail || "Ошибка", "error");
+      }
+    });
+  }
+
+  const btnDel = $("[data-comp-action=delete]");
+  if (btnDel) {
+    btnDel.addEventListener("click", async () => {
+      const cid = btnDel.dataset.id;
+      actionModal({
+        title: "Удаление организации",
+        danger: true,
+        body: "Вы уверены, что хотите удалить эту организацию из списка?",
+        confirmText: "Удалить",
+        onConfirm: async () => {
+          const res = await api("/api/companies/" + cid, undefined, "DELETE");
+          if (res.ok) {
+            notice("Организация удалена");
+            await openCompanySettings();
+          } else {
+            notice(res.detail || "Ошибка удаления", "error");
+          }
+        }
+      });
+    });
+  }
 
   if (warn) notice(warn, "amber");
 }
 
 async function saveCompanySettings() {
+  const cid = $("#cs-id") ? $("#cs-id").value.trim() : "";
+  const isNew = companySettingsState.isNew || !cid;
+
   const data = {
     name: $("#cs-name").value.trim(),
     inn: $("#cs-inn").value.trim(),
@@ -1278,24 +1424,32 @@ async function saveCompanySettings() {
     bank: $("#cs-bank").value.trim(),
     bik: $("#cs-bik").value.trim(),
     account: $("#cs-account").value.trim(),
-    corrAccount: $("#cs-corr").value.trim(),
+    corr_account: $("#cs-corr").value.trim(),
     director: $("#cs-director").value.trim(),
     accountant: $("#cs-accountant").value.trim(),
-    invoicePrefix: $("#cs-prefix").value.trim() || "СЧ",
-    vatRate: parseFloat($("#cs-vat").value) || 0
+    invoice_prefix: $("#cs-prefix").value.trim() || "СЧ",
+    vat_rate: parseFloat($("#cs-vat").value) || 0,
+    is_default: $("#cs-default") ? $("#cs-default").checked : false
   };
 
   if (!data.name || !data.inn) {
-    notice("Заполните название и ИНН", "error");
+    notice("Заполните название организации и ИНН", "error");
     return;
   }
 
-  const r = await api("/api/settings/company", data, "PUT");
-  if (r.ok) {
-    notice("Реквизиты сохранены");
-    closeModal();
+  let r;
+  if (isNew) {
+    r = await api("/api/companies/", data, "POST");
   } else {
-    notice(r.detail || "Ошибка", "error");
+    r = await api("/api/companies/" + cid, data, "PUT");
+  }
+
+  if (r.ok) {
+    notice(isNew ? "Организация создана" : "Реквизиты сохранены");
+    closeModal();
+    if (typeof currentPage !== "undefined" && currentPage === "invoices") loadInvoices();
+  } else {
+    notice(r.detail || "Ошибка сохранения", "error");
   }
 }
 
@@ -1323,12 +1477,11 @@ document.addEventListener("click", async ev => {
       window.open("/api/invoices/" + id + "/act", "_blank");
       break;
 
-
     case "inv-create":
       await saveInvoice();
       break;
 
-    case "inv-save-settings":
+    case "inv-save-company":
       await saveCompanySettings();
       break;
 
@@ -1673,7 +1826,7 @@ document.addEventListener("click", ev => {
 });
 
 
-// ===== КОЛОКОЛЬЧИК: НАПОМИНАНИЯ ЗА 7 ДНЕЙ С МЯГКИМ ЗВУКОМ =====
+// ===== КОЛОКОЛЬЧИК: НАПОМИНАНИЯ ЗА 7 ДНЕЙ С МЯГКИМ ЗВУКОМ И СКРЫТИЕМ ПРОЧИТАННЫХ =====
 let bellSoundEnabled = localStorage.getItem("bell_sound_enabled") !== "false";
 let lastNotifiedIds = new Set();
 try {
@@ -1681,13 +1834,37 @@ try {
   lastNotifiedIds = new Set(stored);
 } catch (e) {}
 
+// Список скрытых пользователем ID напоминаний
+let bellDismissedIds = new Set();
+try {
+  const storedDismissed = JSON.parse(localStorage.getItem("bell_dismissed_ids") || "[]");
+  bellDismissedIds = new Set(storedDismissed);
+} catch (e) {}
+
+function dismissBellReminder(id) {
+  if (!id) return;
+  bellDismissedIds.add(id);
+  localStorage.setItem("bell_dismissed_ids", JSON.stringify(Array.from(bellDismissedIds)));
+  loadReminders();
+}
+
+function dismissAllBellReminders(ids) {
+  if (!ids || !ids.length) return;
+  ids.forEach(id => bellDismissedIds.add(id));
+  localStorage.setItem("bell_dismissed_ids", JSON.stringify(Array.from(bellDismissedIds)));
+  loadReminders();
+}
+
 function playSoftChime() {
   if (!bellSoundEnabled) return;
   try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    if (ctx.state === "suspended") ctx.resume();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+      if (ctx.state === "suspended") return; // Браузер требует взаимодействия пользователя для воспроизведения
+    }
 
     const now = ctx.currentTime;
     // Мягкий гармоничный двухтональный колокольчик (E5 -> B5, 659.25Hz и 987.77Hz)
@@ -1714,18 +1891,25 @@ function playSoftChime() {
       osc.stop(now + t.time + t.dur);
     });
   } catch (err) {
-    // Web Audio api restricted or unavailable
+    // AudioContext недоступен
   }
 }
+
+let lastActiveBellItems = [];
 
 async function loadReminders() {
   try {
     const res = await api("/api/dashboard/reminders");
     if (!res.ok) return;
-    const items = res.data || [];
+    const rawItems = res.data || [];
+
+    // Фильтруем те, которые пользователь уже скрыл/просмотрел
+    const items = rawItems.filter(item => !bellDismissedIds.has(item.ID));
+    lastActiveBellItems = items;
 
     const badge = document.getElementById("bellBadge");
     const list = document.getElementById("bellList");
+    const markAllBtn = document.getElementById("bellMarkAllReadBtn");
 
     if (badge) {
       if (items.length > 0) {
@@ -1737,15 +1921,22 @@ async function loadReminders() {
       }
     }
 
+    if (markAllBtn) {
+      markAllBtn.style.display = items.length > 0 ? "inline-block" : "none";
+    }
+
     if (list) {
       if (!items.length) {
-        list.innerHTML = '<div class="empty" style="padding:16px 8px;font-size:12px;">✅ Все работы по графику, напоминаний нет</div>';
+        list.innerHTML = '<div class="empty" style="padding:16px 8px;font-size:12px;">✅ Все напоминания просмотрены</div>';
       } else {
         list.innerHTML = items.map(item => `
-          <div class="bell-item" data-action="exec-open" data-id="${esc(item.ID)}">
+          <div class="bell-item" data-action="bell-open" data-id="${esc(item.ID)}" data-date="${esc(item.PlannedDate)}">
             <div class="bell-item-head">
               <span class="bell-item-obj">${esc(item.ObjectName)}</span>
-              <span class="bell-item-tag">${item.DaysLeft === 0 ? "СЕГОДНЯ" : "через " + item.DaysLeft + " дн."}</span>
+              <div class="bell-item-actions">
+                <span class="bell-item-tag">${item.DaysLeft === 0 ? "СЕГОДНЯ" : "через " + item.DaysLeft + " дн."}</span>
+                <button type="button" class="bell-item-dismiss" data-action="bell-dismiss" data-id="${esc(item.ID)}" title="Скрыть это напоминание">✕</button>
+              </div>
             </div>
             <div class="bell-item-work">${esc(item.WorkCode)} · ${esc(item.WorkName)}</div>
             <div class="bell-item-date">
@@ -1769,6 +1960,35 @@ async function loadReminders() {
 }
 
 document.addEventListener("click", ev => {
+  // Нажатие на само напоминание: скрываем его и открываем карточку даты выполнения
+  const bellItem = ev.target.closest("[data-action='bell-open']");
+  if (bellItem && !ev.target.closest("[data-action='bell-dismiss']")) {
+    const id = bellItem.dataset.id;
+    const pDate = bellItem.dataset.date;
+    if (id) dismissBellReminder(id);
+    const dd = document.getElementById("bellDropdown");
+    if (dd) dd.classList.add("hidden");
+    if (pDate) openDay(pDate.slice(0, 10));
+    return;
+  }
+
+  // Нажатие кнопки "Скрыть напоминание" (крестик на отдельном напоминании)
+  const dismissBtn = ev.target.closest("[data-action='bell-dismiss']");
+  if (dismissBtn) {
+    ev.stopPropagation();
+    const id = dismissBtn.dataset.id;
+    dismissBellReminder(id);
+    return;
+  }
+
+  // Нажатие кнопки "Прочитано всё"
+  const markAllBtn = ev.target.closest("#bellMarkAllReadBtn");
+  if (markAllBtn) {
+    ev.stopPropagation();
+    dismissAllBellReminders(lastActiveBellItems.map(x => x.ID));
+    return;
+  }
+
   const bellBtn = ev.target.closest("#bellBtn");
   const dd = document.getElementById("bellDropdown");
   if (bellBtn && dd) {
@@ -1830,8 +2050,8 @@ setInterval(loadReminders, 60000); // Проверка каждую минуту
   });
 })();
 
-// ===== ИНДИКАЦИЯ СТАТУСА ИИ (ДОСТУПЕН / ОТКЛЮЧЕН / РУЧНОЙ ВВОД) =====
-let aiStatusCache = { enabled: true, has_api_key: false, mode: "123-ФЗ" };
+// ===== ИНДИКАЦИЯ СТАТУСА ИИ (ПРОВЕРКА API, РЕАЛЬНОЕ ПОДКЛЮЧЕНИЕ, 123-ФЗ) =====
+let aiStatusCache = { enabled: true, is_online: false, has_api_key: false, status: "expert_offline", mode: "123-ФЗ" };
 
 async function checkAndUpdateAiStatus() {
   try {
@@ -1840,30 +2060,37 @@ async function checkAndUpdateAiStatus() {
       aiStatusCache = rc;
     }
   } catch (e) {
-    aiStatusCache = { enabled: false, status: "disabled", mode: "Недоступен" };
+    aiStatusCache = { enabled: false, is_online: false, status: "disabled", mode: "Недоступен" };
   }
 
   const btn = document.getElementById("btnOpenAiAdvisor");
   if (!btn) return;
 
-  btn.classList.remove("state-online", "state-expert", "state-disabled");
+  btn.classList.remove("state-online", "state-expert", "state-disabled", "state-error");
+
+  const pName = esc(aiStatusCache.display_name || "123-ФЗ");
+  const provider = esc(aiStatusCache.provider_display || "AI");
 
   if (!aiStatusCache.enabled) {
-    // 🟡 ОРАНЖЕВЫЙ: ИИ ВЫКЛЮЧЕН В msg.cfg
+    // 🟡 ИИ ВЫКЛЮЧЕН В msg.cfg
     btn.classList.add("state-disabled");
     btn.innerHTML = '<span class="ai-dot"></span>✍️ <span>ИИ: Выключен</span> <span class="ai-status-pill">ВРУЧНУЮ</span>';
     btn.title = "ИИ отключен в msg.cfg (enabled=false). Все поля заполняются полностью вручную.";
-  } else if (aiStatusCache.has_api_key) {
-    // 🟢 ЗЕЛЁНЫЙ: API КЛЮЧ ЕСТЬ, НЕЙРОСЕТЬ ОНЛАЙН РАБОТАЕТ
+  } else if (aiStatusCache.status === "error") {
+    // 🔴 ОШИБКА API (неверный ключ, ошибка авторизации 401/403 или сеть)
+    btn.classList.add("state-error");
+    btn.innerHTML = `<span class="ai-dot"></span>⚠️ <span>Ошибка API: ${provider}</span> <span class="ai-status-pill">ОШИБКА КЛЮЧА</span>`;
+    btn.title = `Внимание! API нейросети не отвечает или указан неверный ключ: ${aiStatusCache.error_detail || 'Ошибка'}. Включен резерв: 123-ФЗ.`;
+  } else if (aiStatusCache.is_online && aiStatusCache.status === "online_llm") {
+    // 🟢 РЕАЛЬНО ОНЛАЙН: Проверенное подключение к внешней нейросети
     btn.classList.add("state-online");
-    const mName = esc(aiStatusCache.model || "LLM");
-    btn.innerHTML = `<span class="ai-dot"></span>🤖 <span>ИИ: ${mName}</span> <span class="ai-status-pill">ОНЛАЙН</span>`;
-    btn.title = `ИИ подключен по API (${mName}). Доступен нейросетевой анализ.`;
+    btn.innerHTML = `<span class="ai-dot"></span>🤖 <span>${pName}</span> <span class="ai-status-pill">ОНЛАЙН</span>`;
+    btn.title = `ИИ подключен и проверен (${provider}, модель ${aiStatusCache.model}). Доступен нейросетевой анализ.`;
   } else {
-    // 🟡 ЖЁЛТЫЙ / ОРАНЖЕВЫЙ: API КЛЮЧА НЕТ! (НЕТ API)
+    // 🟡 БЕЗ ВНЕШНЕГО API: Встроенная база 123-ФЗ
     btn.classList.add("state-disabled");
-    btn.innerHTML = '<span class="ai-dot"></span>✍️ <span>ИИ: НЕТ API</span> <span class="ai-status-pill">БЕЗ API</span>';
-    btn.title = "API-ключ не указан в msg.cfg! Внешняя нейросеть недоступна. Заполнение вручную или по базовым правилам.";
+    btn.innerHTML = '<span class="ai-dot"></span>✍️ <span>База норм 123-ФЗ</span> <span class="ai-status-pill">БЕЗ API</span>';
+    btn.title = "API-ключ не указан в msg.cfg. Работает экспертная система норм пожарной безопасности 123-ФЗ.";
   }
 }
 
@@ -1885,6 +2112,42 @@ async function openAiAdvisorModal(targetObjectId) {
     `<option value="${esc(o.ID)}"${targetObjectId === o.ID ? " selected" : ""}>${esc(o.Name)} (${esc(o.FunctionalHazard || "Ф3.1")}, ${o.TotalArea || 0} м²)</option>`
   ).join("");
 
+  // Формируем баннер статуса в зависимости от реального подключения
+  let bannerHtml = "";
+  if (!cfg.enabled) {
+    bannerHtml = '<div class="ai-banner" style="background:rgba(245,165,36,0.12);border:1.5px solid rgba(245,165,36,0.55);">' +
+      '<div class="ai-banner-ico" style="font-size:28px;">✍️</div>' +
+      '<div class="ai-banner-text">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--amber-2);margin-bottom:4px;">⚠️ ИИ ОТКЛЮЧЕН В MSG.CFG (РЕЖИМ РУЧНОГО ВВОДА)</div>' +
+        '<div style="color:var(--text);font-size:12.5px;line-height:1.4;">Автоматический аудит и рекомендации отключены. Заполнение объектов производится <b>полностью вручную</b>.</div>' +
+      '</div>' +
+    '</div>';
+  } else if (cfg.status === "error") {
+    bannerHtml = '<div class="ai-banner" style="background:rgba(239,68,68,0.1);border:1.5px solid rgba(239,68,68,0.5);">' +
+      '<div class="ai-banner-ico" style="font-size:26px;">⚠️</div>' +
+      '<div class="ai-banner-text">' +
+        '<div style="font-size:13.5px;font-weight:700;color:#f87171;margin-bottom:2px;">🔴 ОШИБКА API НЕЙРОСЕТИ (' + esc(cfg.provider_display || "API") + ')</div>' +
+        '<div style="color:var(--text);font-size:12px;">' + esc(cfg.description || "Ключ API недействителен или сервер недоступен.") + ' Автоматически задействована <b>встроенная база норм 123-ФЗ</b>.</div>' +
+      '</div>' +
+    '</div>';
+  } else if (cfg.is_online && cfg.status === "online_llm") {
+    bannerHtml = '<div class="ai-banner" style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.4);">' +
+      '<div class="ai-banner-ico" style="font-size:26px;">🤖</div>' +
+      '<div class="ai-banner-text">' +
+        '<div style="font-size:13.5px;font-weight:700;color:#4ade80;margin-bottom:2px;">🟢 ' + esc(cfg.display_name || "ИИ ОНЛАЙН") + ' (' + esc(cfg.model || "LLM") + ')</div>' +
+        '<div style="color:var(--text);font-size:12px;">Подключение к API успешно проверено. Доступен автоматический нейросетевой анализ объектов и расчет регламентов.</div>' +
+      '</div>' +
+    '</div>';
+  } else {
+    bannerHtml = '<div class="ai-banner" style="background:rgba(245,165,36,0.1);border:1.5px solid rgba(245,165,36,0.5);">' +
+      '<div class="ai-banner-ico" style="font-size:26px;">✍️</div>' +
+      '<div class="ai-banner-text">' +
+        '<div style="font-size:13.5px;font-weight:700;color:var(--amber-2);margin-bottom:2px;">🟡 БЕЗ ВНЕШНЕГО API: ВСТРОЕННАЯ ЭКСПЕРТНАЯ БАЗА 123-ФЗ</div>' +
+        '<div style="color:var(--text);font-size:12px;">API-ключ не указан в msg.cfg. Система работает автономно по нормам 123-ФЗ, СП 484, СП 486 и ППР 1479.</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   openModal(
     '<div class="modal-head">' +
       '<div class="modal-title">🤖 Помощник по регламентам пожарной безопасности (Нормы ПБ)</div>' +
@@ -1894,29 +2157,7 @@ async function openAiAdvisorModal(targetObjectId) {
       '<button class="ai-tab-btn active" id="tabAiAudit" type="button">Анализ объекта и рекомендации</button>' +
       '<button class="ai-tab-btn" id="tabAiNew" type="button">Конструктор нового объекта</button>' +
     '</div>' +
-    (!cfg.enabled
-      ? '<div class="ai-banner" style="background:rgba(245,165,36,0.12);border:1.5px solid rgba(245,165,36,0.55);">' +
-          '<div class="ai-banner-ico" style="font-size:28px;">✍️</div>' +
-          '<div class="ai-banner-text">' +
-            '<div style="font-size:14px;font-weight:700;color:var(--amber-2);margin-bottom:4px;">⚠️ ИИ ОТКЛЮЧЕН В MSG.CFG (РЕЖИМ РУЧНОГО ВВОДА)</div>' +
-            '<div style="color:var(--text);font-size:12.5px;line-height:1.4;">Автоматический аудит и рекомендации отключены. Заполнение объектов производится <b>полностью вручную</b>.</div>' +
-          '</div>' +
-        '</div>'
-      : (cfg.has_api_key
-        ? '<div class="ai-banner" style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.4);">' +
-            '<div class="ai-banner-ico" style="font-size:26px;">🤖</div>' +
-            '<div class="ai-banner-text">' +
-              '<div style="font-size:13.5px;font-weight:700;color:#4ade80;margin-bottom:2px;">🟢 ИИ ОНЛАЙН: Нейросеть ' + esc(cfg.model || "LLM") + '</div>' +
-              '<div style="color:var(--text);font-size:12px;">Подключен внешний API (' + esc(cfg.provider) + '). Доступен автоматический анализ и генерация регламентов.</div>' +
-            '</div>' +
-          '</div>'
-        : '<div class="ai-banner" style="background:rgba(245,165,36,0.1);border:1.5px solid rgba(245,165,36,0.5);">' +
-            '<div class="ai-banner-ico" style="font-size:26px;">✍️</div>' +
-            '<div class="ai-banner-text">' +
-              '<div style="font-size:13.5px;font-weight:700;color:var(--amber-2);margin-bottom:2px;">🟡 ИИ: НЕТ API-КЛЮЧА В MSG.CFG (РЕЖИМ РУЧНОГО ВВОДА)</div>' +
-              '<div style="color:var(--text);font-size:12px;">Внешняя нейросеть не подключена. Менеджер заполняет параметры объекта и регламенты <b>вручную</b> или нажимает проверку по базовым правилам.</div>' +
-            '</div>' +
-          '</div>')) +
+    bannerHtml +
 
     // Вкладка 1: Аудит существующего объекта
     '<div id="viewAiAudit">' +
