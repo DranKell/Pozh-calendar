@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Календарь</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='9' y='9' width='14' height='14' rx='3' transform='rotate(45 16 16)' fill='%23F5A524'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css?v=pb_neutral3">
+</head>
+<body>
+<div class="stars" aria-hidden="true"></div>
+<div class="moonlight" aria-hidden="true"></div>
+
+<div class="nx-shell">
+
+  <header class="nx-header">
+    <div class="nx-brand collapsed" id="nxBrandToggle" title="Кликните, чтобы показать/скрыть боковую панель (курсы, погода)" role="button" tabindex="0">
+      <div class="nx-date" id="nx-date" aria-label="текущая дата"></div>
+      <span class="nx-brand-caret" id="brandCaret">▾</span>
+    </div>
+
+
+    <div class="nx-navwrap">
+      <nav class="nx-nav">
+        <button data-action="nav" data-page="dashboard" class="active"><span class="ico">◈</span>Дашборд</button>
+        <button data-action="nav" data-page="objects"><span class="ico">⌂</span>Объекты</button>
+        <button data-action="nav" data-page="works"><span class="ico">⚙</span>Виды работ</button>
+        <button data-action="nav" data-page="assignments"><span class="ico">⧉</span>Назначения</button>
+        <button data-action="nav" data-page="calendar"><span class="ico">▦</span>Календарь<span class="nx-badge" id="nb-calendar"></span></button>
+        <button data-action="nav" data-page="journal"><span class="ico">≡</span>Журнал<span class="nx-badge" id="nb-journal"></span></button>
+        <button data-action="nav" data-page="invoices"><span class="ico">💸</span>Счета<span class="nx-badge" id="nb-invoices"></span></button>
+      </nav>
+      <button class="nx-arrow nx-arrow-l" data-action="nav-scroll" data-dir="left" aria-label="Прокрутить меню влево">‹</button>
+      <button class="nx-arrow nx-arrow-r" data-action="nav-scroll" data-dir="right" aria-label="Прокрутить меню вправо">›</button>
+      <button class="btn btn-amber btn-sm ai-header-btn state-disabled" id="btnOpenAiAdvisor" data-action="open-ai" title="Интеллектуальный помощник по нормам пожарной безопасности">
+        <span class="ai-dot"></span>✍️ <span id="aiHeaderLabel">ИИ: НЕТ API</span> <span class="ai-status-pill">БЕЗ API</span>
+      </button>
+      <div class="nx-bell-wrap">
+        <button class="nx-bell-btn" id="bellBtn" data-action="toggle-bell" title="Напоминания и уведомления" aria-label="Уведомления">
+          <span class="bell-ico">🔔</span>
+          <span class="bell-badge" id="bellBadge"></span>
+        </button>
+        <div class="bell-dropdown hidden" id="bellDropdown">
+          <div class="bell-head">
+            <div class="bell-title">Напоминания (за 7 дней)</div>
+            <button class="bell-sound-toggle" id="soundToggleBtn" title="Вкл/Выкл звук">🔊</button>
+          </div>
+          <div class="bell-list" id="bellList">
+            <div class="empty" style="padding:16px 8px;font-size:12px;">Нет новых напоминаний</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+
+  <div class="nx-body side-collapsed">
+    <aside class="nx-side">
+
+      <div class="side-section">
+        <div class="side-title">Курсы валют</div>
+        <div class="fx-list" id="fxWidget"><span class="fx-loading">загрузка курсов…</span></div>
+        <div class="fx-meta">
+          <span id="fxUpdated">ЦБ РФ · Криптовалюты</span>
+          <button class="fx-refresh" id="fxRefresh" data-action="fx-refresh" title="Обновить курсы">↻</button>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-title">Погода</div>
+        <div class="wx" id="wxWidget"><span class="fx-loading">загрузка погоды…</span></div>
+        <div class="fx-meta">
+          <a class="wx-link" href="https://www.ventusky.com/ru#p=58.293;57.883;11" target="_blank" rel="noopener">Карта Ventusky ↗</a>
+          <button class="fx-refresh" id="wxRefresh" data-action="wx-refresh" title="Обновить погоду">↻</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="nx-main">
+      <header class="topbar">
+        <div>
+          <h1 class="page-title" id="pageTitle">Дашборд</h1>
+          <div class="page-sub" id="pageSub"></div>
+        </div>
+      </header>
+      <section id="page-dashboard" class="page"></section>
+      <section id="page-calendar" class="page hidden"></section>
+      <section id="page-objects" class="page hidden"></section>
+      <section id="page-works" class="page hidden"></section>
+      <section id="page-assignments" class="page hidden"></section>
+      <section id="page-journal" class="page hidden"></section>
+      <section id="page-invoices" class="page hidden"></section>
+    </main>
+  </div>
+</div>
+
+<span id="todayChip" class="hidden"></span>
+
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div class="modal" id="modalBox"></div>
+</div>
+<div id="toastHost"></div>
+
+<script src="/static/app.js?v=pb_neutral3"></script>
+</body>
+</html>

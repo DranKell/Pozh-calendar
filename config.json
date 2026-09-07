@@ -1,0 +1,70 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9000
+  },
+  "company": {
+    "name": "ООО «Организация»",
+    "inn": "0000000000",
+    "kpp": "000000000",
+    "ogrn": "0000000000000",
+    "address": "г. Город, ул. Примерная, 1",
+    "phone": "+7 (000) 000-00-00",
+    "email": "noreply@example.com",
+    "bank": "Банк",
+    "bik": "000000000",
+    "account": "00000000000000000000",
+    "corrAccount": "00000000000000000000",
+    "director": "",
+    "accountant": "",
+    "invoicePrefix": "СЧ",
+    "vatRate": 0.0
+  },
+  "smtp": {
+    "enabled": false,
+    "server": "smtp.example.com",
+    "port": 25,
+    "from": "noreply@example.com",
+    "user": "",
+    "password": "",
+    "useSsl": false,
+    "requireAuth": false
+  },
+  "database": {
+    "file": "data/app.db",
+    "connectionString": "sqlite:///data/app.db"
+  },
+  "reminders": {
+    "enabled": false,
+    "checkIntervalHours": 6,
+    "periods": [
+      {
+        "label": "3 недели",
+        "days": 21,
+        "flag": "Sent3w"
+      },
+      {
+        "label": "2 недели",
+        "days": 14,
+        "flag": "Sent2w"
+      },
+      {
+        "label": "1 неделя",
+        "days": 7,
+        "flag": "Sent1w"
+      }
+    ]
+  },
+  "auth": {
+    "jwtSecret": "LOCAL_ec080be320946c5eb598a99dabbdf87246406e5f5517472f",
+    "jwtAlgorithm": "HS256",
+    "allowedDomains": [],
+    "requireEmailVerification": false,
+    "sessionTimeoutMinutes": 480
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/app.log",
+    "maxSizeMB": 50
+  }
+}
