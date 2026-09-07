@@ -945,6 +945,8 @@ document.addEventListener("click", async ev => {
 
     case "open-ai": openAiAdvisorModal(); break;
     case "ai-audit-obj": openAiAdvisorModal(btn.dataset.id); break;
+    case "open-help": openHelpModal(); break;
+
 
     case "obj-new": objectFormModal(); break;
     case "obj-edit": { const r = await api("/api/objects/" + id); if (r.ok) objectFormModal(r.data); break; }
@@ -2387,6 +2389,279 @@ async function openAiAdvisorModal(targetObjectId) {
       }
     });
   }
+}
+
+// -------------------------------------------------------------
+// МОДАЛЬНОЕ ОКНО ПОМОЩИ, ЛОГИКИ РАБОТЫ И ИИ-КОНСУЛЬТАНТА
+// -------------------------------------------------------------
+function openHelpModal(initialTab = "steps") {
+  const c = $("#modalBox");
+  c.className = "modal help-guide-modal";
+
+  c.innerHTML = `
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" style="display:flex;align-items:center;gap:8px;">
+          <span>💡</span> Логика работы и интерактивный помощник
+        </div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:2px;">
+          Пошаговый регламент ведения технического обслуживания систем ПБ
+        </div>
+      </div>
+      <button class="btn-close" id="btnHelpClose" title="Закрыть">✕</button>
+    </div>
+
+    <div class="modal-body" style="padding-top:14px;">
+      <div class="help-tabs">
+        <button class="help-tab-btn ${initialTab === 'steps' ? 'active' : ''}" id="tabBtnSteps">📋 5 шагов работы</button>
+        <button class="help-tab-btn ${initialTab === 'ai' ? 'active' : ''}" id="tabBtnAi">🤖 ИИ-консультант</button>
+        <button class="help-tab-btn ${initialTab === 'colors' ? 'active' : ''}" id="tabBtnColors">🎨 Цвета и статусы</button>
+      </div>
+
+      <!-- ВКЛАДКА 1: 5 ШАГОВ -->
+      <div id="helpTabSteps" class="${initialTab === 'steps' ? '' : 'hidden'}">
+        <div class="flow-steps">
+          
+          <div class="flow-step-card">
+            <div class="flow-step-num">1</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title">
+                <span>Добавьте объект защиты</span>
+                <span class="tag tag-fpo">Ф1–Ф5 по 123-ФЗ</span>
+              </div>
+              <div class="flow-step-desc">
+                Внесите здание или сооружение в реестр: укажите адрес, класс функциональной пожарной опасности (ФПО), этажность и категорию. Вы также можете использовать кнопку <b>«🤖 ИИ-конструктор»</b>, чтобы классифицировать объект по названию одной кнопкой.
+              </div>
+            </div>
+            <button class="btn btn-amber btn-sm flow-step-btn" data-action="go-page" data-target="objects">Перейти к Объектам →</button>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num">2</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title">
+                <span>Проверьте справочник видов работ</span>
+                <span class="tag" style="background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3);">СП 484 / СП 486</span>
+              </div>
+              <div class="flow-step-desc">
+                В системе предзаполнены все регламентные работы: АПС, СОУЭ, АУПТ, ВПВ, дымоудаление и первичные средства с нормативными шифрами ПБ-XX.YY. При необходимости добавьте специфичные работы вашей компании.
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="works">Виды работ →</button>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num">3</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title">
+                <span>Создайте Назначения и автографик</span>
+                <span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3);">Календарный план</span>
+              </div>
+              <div class="flow-step-desc">
+                Привяжите регламентные работы к объекту с нужной периодичностью (месяц, квартал, год). Алгоритм автоматически сгенерирует график выездов на нужный период с гарантией отсутствия наложений и смещений дат.
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="assignments">Назначения →</button>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num">4</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title">
+                <span>Отслеживайте план и фиксируйте факт</span>
+                <span class="tag" style="background:rgba(245,165,36,0.15);color:var(--amber-2);border:1px solid rgba(245,165,36,0.3);">Календарь и Журнал</span>
+              </div>
+              <div class="flow-step-desc">
+                В <b>Календаре</b> визуально видны все плановые даты. По факту выполнения кликните на событие и нажмите «Отметить выполненным». В <b>Журнале</b> доступно пакетное закрытие работ сразу за выбранный месяц.
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="calendar">В Календарь →</button>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num">5</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title">
+                <span>Выставляйте Счета и печатайте Акты</span>
+                <span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">А4 / PDF</span>
+              </div>
+              <div class="flow-step-desc">
+                Формируйте счета от любой из ваших организаций-исполнителей в один клик. Система автоматически присвоит номер с префиксом и сгенерирует чистые печатные формы Счёта и Акта сдачи-приемки по стандартам РФ.
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="invoices">Счета и Акты →</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА 2: ИИ-КОНСУЛЬТАНТ -->
+      <div id="helpTabAi" class="${initialTab === 'ai' ? '' : 'hidden'}">
+        <div class="ai-consultant-box">
+          <div style="font-size:13px;color:var(--text-2);">
+            Задайте любой вопрос по нормам пожарной безопасности (123-ФЗ, СП 484/486/3/10) или по работе системы:
+          </div>
+
+          <div class="ai-quick-chips">
+            <span class="ai-quick-chip" data-ask="С чего начать работу в системе?">С чего начать?</span>
+            <span class="ai-quick-chip" data-ask="Какая периодичность ТО для системы АПС по СП 484?">Периодичность ТО АПС</span>
+            <span class="ai-quick-chip" data-ask="Как выставить счёт и распечатать Акт?">Выставить счёт и Акт</span>
+            <span class="ai-quick-chip" data-ask="Что означают классы ФПО (Ф3.1, Ф4.3)?">Классы ФПО (ст. 32 123-ФЗ)</span>
+            <span class="ai-quick-chip" data-ask="Как работает ИИ без интернета?">Работа ИИ без интернета</span>
+          </div>
+
+          <div class="ai-ask-row">
+            <input type="text" class="inp ai-ask-input" id="helpAiInput" placeholder="Напишите ваш вопрос (например: Как запланировать ТО дымоудаления?)...">
+            <button class="btn btn-amber" id="btnHelpAiAsk" style="white-space:nowrap;">Спросить 🤖</button>
+          </div>
+
+          <div id="helpAiResponseHost"></div>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА 3: ЦВЕТА И СТАТУСЫ -->
+      <div id="helpTabColors" class="${initialTab === 'colors' ? '' : 'hidden'}">
+        <div style="display:flex;flex-direction:column;gap:10px;padding:6px 0;">
+          <div class="flow-step-card" style="border-left:4px solid var(--blue);">
+            <div>
+              <div style="font-weight:700;color:var(--blue);font-size:14px;margin-bottom:4px;">🔵 Синий — Запланировано (Planned)</div>
+              <div style="font-size:12.5px;color:var(--text-2);">Регламентная работа зафиксирована в графике, срок выезда ещё не наступил.</div>
+            </div>
+          </div>
+          <div class="flow-step-card" style="border-left:4px solid var(--green);">
+            <div>
+              <div style="font-weight:700;color:var(--green);font-size:14px;margin-bottom:4px;">🟢 Зелёный — Выполнено (Done)</div>
+              <div style="font-size:12.5px;color:var(--text-2);">ТО проведено специалистом, запись внесена в журнал выполненных работ.</div>
+            </div>
+          </div>
+          <div class="flow-step-card" style="border-left:4px solid var(--amber-2);">
+            <div>
+              <div style="font-weight:700;color:var(--amber-2);font-size:14px;margin-bottom:4px;">🟡 Жёлтый / Янтарный — Перенесено (Postponed)</div>
+              <div style="font-size:12.5px;color:var(--text-2);">Выезд перенесен на другую согласованную дату по заявке заказчика или техническим причинам.</div>
+            </div>
+          </div>
+          <div class="flow-step-card" style="border-left:4px solid var(--red);">
+            <div>
+              <div style="font-weight:700;color:var(--red);font-size:14px;margin-bottom:4px;">🔴 Красный — Просрочено (Overdue)</div>
+              <div style="font-size:12.5px;color:var(--text-2);">Дата регламентного ТО наступила в прошлом, но факт выполнения не зафиксирован. Требует немедленного внимания диспетчера!</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11.5px;color:var(--text-3);">
+        * Вся нормативная база соответствует ГОСТ, СП и требованиям МЧС России
+      </div>
+      <button class="btn btn-ghost" id="btnHelpFooterClose">Понятно</button>
+    </div>
+  `;
+
+  openModal();
+
+  // Навешивание событий
+  const btnClose = $("#btnHelpClose");
+  const btnFooterClose = $("#btnHelpFooterClose");
+  if (btnClose) btnClose.onclick = closeModal;
+  if (btnFooterClose) btnFooterClose.onclick = closeModal;
+
+  // Переключение вкладок
+  const tabSteps = $("#helpTabSteps");
+  const tabAi = $("#helpTabAi");
+  const tabColors = $("#helpTabColors");
+  const btnTSteps = $("#tabBtnSteps");
+  const btnTAi = $("#tabBtnAi");
+  const btnTColors = $("#tabBtnColors");
+
+  function switchTab(target) {
+    [tabSteps, tabAi, tabColors].forEach(el => el.classList.add("hidden"));
+    [btnTSteps, btnTAi, btnTColors].forEach(b => b.classList.remove("active"));
+    if (target === "steps") {
+      tabSteps.classList.remove("hidden");
+      btnTSteps.classList.add("active");
+    } else if (target === "ai") {
+      tabAi.classList.remove("hidden");
+      btnTAi.classList.add("active");
+    } else if (target === "colors") {
+      tabColors.classList.remove("hidden");
+      btnTColors.classList.add("active");
+    }
+  }
+
+  if (btnTSteps) btnTSteps.onclick = () => switchTab("steps");
+  if (btnTAi) btnTAi.onclick = () => switchTab("ai");
+  if (btnTColors) btnTColors.onclick = () => switchTab("colors");
+
+  // Переходы по разделам
+  c.querySelectorAll('[data-action="go-page"]').forEach(btn => {
+    btn.onclick = () => {
+      const page = btn.dataset.target;
+      closeModal();
+      setPage(page);
+    };
+  });
+
+  // Логика вопросов ИИ-консультанту
+  const inputAi = $("#helpAiInput");
+  const btnAsk = $("#btnHelpAiAsk");
+  const hostAi = $("#helpAiResponseHost");
+
+  async function askHelp(q) {
+    if (!q || !q.trim()) return;
+    if (inputAi) inputAi.value = q;
+    if (hostAi) {
+      hostAi.innerHTML = `
+        <div class="ai-answer-card" style="display:flex;align-items:center;gap:10px;">
+          <span class="spin">↻</span> ИИ-помощник формирует ответ по нормам ПБ...
+        </div>
+      `;
+    }
+    if (btnAsk) btnAsk.disabled = true;
+
+    try {
+      const r = await api("/api/ai/ask", {
+        question: q.trim(),
+        contextPage: state.page || "dashboard"
+      });
+      if (r.ok && r.answer) {
+        if (hostAi) {
+          hostAi.innerHTML = `
+            <div class="ai-answer-card">
+              <div class="ai-answer-head">
+                <span>🤖 Ответ ассистента</span>
+                <span>\${escapeHtml(r.source || "Экспертная база ПБ")}</span>
+              </div>
+              <div style="line-height:1.6;">\${r.answer.replace(/\\n/g, '<br>')}</div>
+            </div>
+          `;
+        }
+      } else {
+        if (hostAi) {
+          hostAi.innerHTML = `<div class="ai-answer-card" style="color:var(--red);">Не удалось получить ответ: \${escapeHtml(r.detail || "Ошибка сервиса")}</div>`;
+        }
+      }
+    } catch (err) {
+      if (hostAi) {
+        hostAi.innerHTML = `<div class="ai-answer-card" style="color:var(--red);">Ошибка сети при обращении к ИИ</div>`;
+      }
+    } finally {
+      if (btnAsk) btnAsk.disabled = false;
+    }
+  }
+
+  if (btnAsk) {
+    btnAsk.onclick = () => askHelp(inputAi ? inputAi.value : "");
+  }
+  if (inputAi) {
+    inputAi.onkeydown = (e) => {
+      if (e.key === "Enter") askHelp(inputAi.value);
+    };
+  }
+  c.querySelectorAll(".ai-quick-chip").forEach(chip => {
+    chip.onclick = () => askHelp(chip.dataset.ask);
+  });
 }
 
 

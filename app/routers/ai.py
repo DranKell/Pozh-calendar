@@ -22,10 +22,12 @@ from app.services.ai_service import (
     get_preset_for_building_type,
     verify_llm_connection,
     get_provider_display_name,
+    answer_assistant_question,
 )
 from app.services.periodicity import generate_schedule
 
 router = APIRouter()
+
 
 
 class AnalyzeObjectRequest(BaseModel):
@@ -37,6 +39,11 @@ class AnalyzeObjectRequest(BaseModel):
     floors: Optional[int] = 1
 
 
+class AskQuestionRequest(BaseModel):
+    question: str
+    contextPage: Optional[str] = "dashboard"
+
+
 class QuickPresetRequest(BaseModel):
     query: str
 
@@ -46,6 +53,7 @@ class ApplyRecommendationsRequest(BaseModel):
     workCodes: List[str]
     startDate: Optional[str] = None
     endDate: Optional[str] = None
+
 
 
 @router.get("/config")
@@ -99,6 +107,15 @@ def get_preset(req: QuickPresetRequest):
     """Подбор параметров по наименованию типа объекта"""
     data = get_preset_for_building_type(req.query)
     return {"ok": True, "preset": data}
+
+
+@router.post("/ask")
+def ask_assistant(req: AskQuestionRequest):
+    """Интеллектуальный вопрос-ответ консультант для пользователя"""
+    cfg = load_ai_config()
+    res = answer_assistant_question(req.question, req.contextPage or "dashboard", cfg)
+    return res
+
 
 
 @router.post("/analyze")
