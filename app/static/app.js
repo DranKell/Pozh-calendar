@@ -2855,9 +2855,9 @@ function renderImportModal() {
 2. ТЦ «Галерея», г. Пермь, Комсомольский пр-кт, 15, площадь 4500 м2, 3 этажа
 3. ИП Сидоров А.В. (Склад запчастей, Категория В, Ф5.2)..."></textarea>
         </div>
-        <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
           <button class="btn btn-ghost" id="btnImportClearText">Очистить</button>
-          <button class="btn btn-amber" id="btnRunParseText">
+          <button class="btn btn-amber btn-action-primary" id="btnRunParseText" style="min-height:38px;padding:8px 20px;">
             <span>🤖 Распознать и отсортировать через ИИ</span>
           </button>
         </div>
@@ -2866,28 +2866,38 @@ function renderImportModal() {
       <!-- ФОРМА: ФАЙЛ -->
       <div id="importTabFile" class="${importModalState.tab === 'file' ? '' : 'hidden'}">
         <input type="file" id="importFileInput" accept=".docx,.doc,.xlsx,.xls,.pdf,.txt,.csv" style="display:none;">
-        <div class="import-dropzone" id="importDropzone">
-          <div class="import-dropzone-ico">📄</div>
-          <div class="import-dropzone-title">Перетащите сюда документ или кликните для выбора</div>
-          <div class="import-dropzone-sub">Поддерживаются форматы: Word (.docx, .doc), Excel (.xlsx, .xls), Adobe PDF (.pdf), TXT, CSV</div>
-          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;">Выбрать файл на диске</button>
+        <div class="import-dropzone ${importModalState.isLoading ? 'loading' : ''}" id="importDropzone">
+          ${importModalState.isLoading ? `
+            <div class="dropzone-loader-overlay">
+              <div class="dropzone-spinner"></div>
+              <div class="dropzone-loader-title">🤖 ИИ извлекает данные и классифицирует документ...</div>
+              <div class="dropzone-loader-sub">Идёт чтение таблиц, поиск реквизитов (ИНН/КПП/ОГРН/адрес), расчет пожарной опасности (123-ФЗ) и сортировка организаций по алфавиту</div>
+            </div>
+          ` : `
+            <div class="import-dropzone-ico">📄</div>
+            <div class="import-dropzone-title">Перетащите сюда документ или кликните для выбора</div>
+            <div class="import-dropzone-sub">Поддерживаются форматы: Word (.docx, .doc), Excel (.xlsx, .xls), Adobe PDF (.pdf), TXT, CSV</div>
+            <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;">Выбрать файл на диске</button>
+          `}
         </div>
-        <div id="importSelectedFileInfo" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;background:var(--panel-2);padding:10px 14px;border-radius:8px;border:1px solid var(--amber);">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:20px;">📎</span>
+        <div id="importSelectedFileInfo" class="${importModalState.isLoading ? 'hidden' : 'hidden'}" style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;background:var(--panel-2);padding:10px 16px;border-radius:10px;border:1px solid var(--amber);">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:22px;">📎</span>
             <div>
-              <b id="importFileName" style="color:var(--text);font-size:13px;"></b>
-              <div id="importFileSize" class="sub"></div>
+              <b id="importFileName" style="color:var(--text);font-size:13.5px;"></b>
+              <div id="importFileSize" class="sub" style="font-size:11.5px;"></div>
             </div>
           </div>
-          <button class="btn btn-amber btn-sm" id="btnRunParseFile">🤖 Распознать файл через ИИ</button>
+          <button class="btn btn-amber btn-action-primary" id="btnRunParseFile" style="min-height:38px;padding:8px 20px;">
+            <span>🤖 Распознать и отсортировать через ИИ</span>
+          </button>
         </div>
       </div>
 
-      <!-- БЛОК ЗАГРУЗКИ -->
-      <div id="importLoadingHost" class="${importModalState.isLoading ? '' : 'hidden'}" style="margin:20px 0;text-align:center;padding:24px;background:var(--panel-2);border-radius:12px;border:1px solid var(--line);">
-        <div class="spin" style="font-size:28px;margin-bottom:10px;">↻</div>
-        <div style="font-weight:700;color:var(--amber-2);font-size:14px;">ИИ анализирует документ и классифицирует организации...</div>
+      <!-- БЛОК ЗАГРУЗКИ ТЕКСТА (если активна вкладка Текст) -->
+      <div id="importLoadingHost" class="${importModalState.isLoading && importModalState.tab === 'text' ? '' : 'hidden'}" style="margin:20px 0;text-align:center;padding:24px;background:var(--panel-2);border-radius:12px;border:1px solid var(--line);">
+        <div class="dropzone-spinner" style="margin:0 auto 12px;"></div>
+        <div style="font-weight:700;color:var(--amber-2);font-size:14px;">ИИ анализирует текст и классифицирует организации...</div>
         <div style="font-size:12px;color:var(--text-3);margin-top:4px;">Извлечение реквизитов, определение классов пожарной опасности (123-ФЗ) и сортировка по алфавиту</div>
       </div>
 
@@ -2952,11 +2962,11 @@ function renderImportModal() {
 
     <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;">
       <button class="btn btn-ghost" id="btnImportCancel">Отмена</button>
-      <div style="display:flex;gap:10px;align-items:center;">
+      <div style="display:flex;gap:12px;align-items:center;">
         <span id="importSelectedCount" style="font-size:12px;color:var(--text-2);">
           ${hasResults ? `Выбрано: ${importModalState.parsedItems.length} из ${importModalState.parsedItems.length}` : ''}
         </span>
-        <button class="btn btn-amber" id="btnSaveBatchImport" ${hasResults ? '' : 'disabled'}>
+        <button class="btn btn-amber btn-action-primary" id="btnSaveBatchImport" ${hasResults ? '' : 'disabled'} style="min-height:38px;padding:8px 20px;">
           📥 Добавить выбранные в ${isObj ? 'Объекты' : 'Организации'}
         </button>
       </div>

@@ -262,11 +262,11 @@ textarea.inp { resize:vertical; }
 .modal-overlay { position:fixed; inset:0; background:rgba(3,6,12,.74); display:flex; align-items:center; justify-content:center; z-index:50; animation:fade .2s ease; }
 .modal { width:min(720px, 94vw); max-height:88vh; overflow-y:auto; background:linear-gradient(170deg, var(--panel-2), var(--panel));
   border:1px solid var(--line-strong); border-radius:16px; padding:24px 26px; box-shadow:0 30px 80px rgba(0,0,0,.55); animation:mpop .26s cubic-bezier(.2,.9,.3,1.15); }
-.modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+.modal-head, .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--line); }
 .modal-title { font-family:var(--font-display); font-size:16.5px; font-weight:600; }
-.modal-x { background:none; border:none; color:var(--text-3); font-size:22px; line-height:1; cursor:pointer; transition:color .15s, transform .2s; }
-.modal-x:hover { color:var(--ember); transform:rotate(90deg); }
-.modal-foot { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
+.modal-x, .btn-close { background:none; border:none; color:var(--text-3); font-size:22px; line-height:1; cursor:pointer; transition:color .15s, transform .2s; }
+.modal-x:hover, .btn-close:hover { color:var(--ember); transform:rotate(90deg); }
+.modal-foot, .modal-footer { display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
 @keyframes mpop { from{opacity:0; transform:scale(.94) translateY(10px)} }
 @keyframes fade { from{opacity:0} }
 .kv { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
@@ -767,18 +767,63 @@ textarea.inp { resize:vertical; }
 /* ---------- ИИ-ИМПОРТ ОРГАНИЗАЦИЙ И ДОКУМЕНТОВ ---------- */
 .import-modal { max-width: 960px !important; }
 .import-dropzone {
+  position: relative;
   border: 2px dashed var(--line-strong); border-radius: 12px;
-  padding: 28px 20px; text-align: center; background: rgba(14,22,36,0.5);
+  padding: 32px 20px; text-align: center; background: rgba(14,22,36,0.5);
   cursor: pointer; transition: all .2s ease;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 170px;
 }
 .import-dropzone:hover, .import-dropzone.dragover {
   border-color: var(--amber); background: rgba(245,165,36,0.06);
   box-shadow: 0 0 24px rgba(245,165,36,0.15);
 }
-.import-dropzone-ico { font-size: 36px; line-height: 1; }
-.import-dropzone-title { font-weight: 700; font-size: 14px; color: var(--text); }
-.import-dropzone-sub { font-size: 12px; color: var(--text-3); }
+.import-dropzone.loading {
+  pointer-events: none;
+  border-color: var(--amber);
+  background: rgba(14,22,36,0.85);
+}
+.import-dropzone-ico { font-size: 38px; line-height: 1; transition: transform .2s; }
+.import-dropzone:hover .import-dropzone-ico { transform: translateY(-3px) scale(1.08); }
+.import-dropzone-title { font-weight: 700; font-size: 14.5px; color: var(--text); }
+.import-dropzone-sub { font-size: 12px; color: var(--text-3); max-width: 500px; }
+
+/* Внутренний кружок загрузки для блока дропзоны */
+.dropzone-loader-overlay {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: 10px; animation: fadeIn .2s ease;
+}
+.dropzone-spinner {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 4px solid rgba(245,165,36,0.18);
+  border-top-color: var(--amber-2);
+  border-right-color: var(--amber);
+  animation: spin 0.85s linear infinite;
+  box-shadow: 0 0 20px rgba(245,165,36,0.3);
+}
+.dropzone-loader-title {
+  font-weight: 700; font-size: 14.5px; color: var(--amber-2);
+  display: flex; align-items: center; gap: 6px;
+}
+.dropzone-loader-sub {
+  font-size: 12px; color: var(--text-2); max-width: 460px; line-height: 1.4;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Выравнивание и одинаковая геометрия кнопок действий */
+.btn-action-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 42px; padding: 0 20px; font-size: 13.5px; font-weight: 700;
+  border-radius: 10px; line-height: 1.2; text-align: center;
+}
 
 .import-preview-table-wrap {
   max-height: 380px; overflow-y: auto; border: 1px solid var(--line);
