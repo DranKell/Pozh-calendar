@@ -41,8 +41,8 @@
       <button class="btn btn-amber btn-sm ai-header-btn state-disabled" id="btnOpenAiAdvisor" data-action="open-ai" title="Интеллектуальный помощник по нормам пожарной безопасности">
         <span class="ai-dot"></span>✍️ <span id="aiHeaderLabel">ИИ: НЕТ API</span> <span class="ai-status-pill">БЕЗ API</span>
       </button>
-      <button class="btn btn-ghost btn-sm header-help-btn" id="btnHelpGuide" data-action="open-help" title="Логика работы системы, интерактивный гид и ИИ-подсказки">
-        💡 <span>Подсказки</span>
+      <button class="btn btn-ghost btn-sm header-help-btn" id="btnHelpGuide" data-action="open-help" title="Помощь: как пользоваться интерфейсом за 5 шагов">
+        💡 <span>Помощь</span>
       </button>
       <div class="nx-bell-wrap">
         <button class="nx-bell-btn" id="bellBtn" data-action="toggle-bell" title="Напоминания и уведомления" aria-label="Уведомления">
@@ -109,18 +109,13 @@
 
 <span id="todayChip" class="hidden"></span>
 
+<!-- Модальное окно и тосты -->
 <div id="modalOverlay" class="modal-overlay hidden">
   <div class="modal" id="modalBox"></div>
 </div>
 <div id="toastHost"></div>
 
-<!-- Плавающий виджет помощи -->
-<button class="floating-help-btn" id="floatingHelpBtn" data-action="open-help" title="Помощник новичка и логика работы">
-  <span class="f-help-icon">💡</span>
-  <span class="f-help-text">Помощь</span>
-</button>
-
-<script src="/static/app.js?v=guide_ai"></script>
+<script src="/static/app.js?v=ai_import_v1"></script>
 </body>
 </html>
 

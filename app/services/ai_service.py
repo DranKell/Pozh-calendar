@@ -987,3 +987,349 @@ def answer_assistant_question(question: str, context_page: str = "", ai_cfg: Opt
         "source": "Гид новичка"
     }
 
+
+def ai_parse_organizations(raw_text: str) -> Dict[str, Any]:
+    """
+    Интеллектуальное распознавание списка организаций/объектов из текста:
+    1. Попытка распознать через активный LLM (GigaChat, YandexGPT, DeepSeek).
+    2. Если LLM недоступен или вернул сбой — экспертный локальный regex-парсер реквизитов.
+    3. Автоматическая группировка/сортировка по названию организации.
+    """
+    if not raw_text or not raw_text.strip():
+        return {"ok": False, "error": "Текст для распознавания пуст", "items": []}
+
+    cfg = load_ai_config()
+    health = verify_llm_connection(cfg, force_check=False)
+
+    parsed_items: List[Dict[str, Any]] = []
+    source_name = "Встроенный парсер реквизитов"
+
+    # 1. Попытка через подключенный LLM
+    if health.get("is_online") and health.get("active_config"):
+        p_cfg = health["active_config"]
+        llm_result = _call_llm_parse_orgs(p_cfg, raw_text[:12000])
+        if llm_result and isinstance(llm_result, list) and len(llm_result) > 0:
+            parsed_items = llm_result
+            source_name = f"Нейросеть {health.get('display_name', 'LLM')}"
+
+    # 2. Fallback: экспертный локальный парсер
+    if not parsed_items:
+        parsed_items = _rule_based_parse_orgs(raw_text)
+
+    # 3. Нормализация и сортировка по названию
+    cleaned_items = []
+    for item in parsed_items:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        inn = str(item.get("inn") or "").strip()
+        inn = "".join(ch for ch in inn if ch.isdigit())
+        kpp = str(item.get("kpp") or "").strip()
+        kpp = "".join(ch for ch in kpp if ch.isdigit())
+        ogrn = str(item.get("ogrn") or "").strip()
+        ogrn = "".join(ch for ch in ogrn if ch.isdigit())
+
+        # ФПО
+        fpo = str(item.get("functional_hazard") or "Ф3.1").strip().upper()
+        if not fpo.startswith("Ф"):
+            fpo = "Ф" + fpo
+
+        cleaned_items.append({
+            "name": name,
+            "inn": inn,
+            "kpp": kpp,
+            "ogrn": ogrn,
+            "address": str(item.get("address") or "").strip(),
+            "phone": str(item.get("phone") or "").strip(),
+            "email": str(item.get("email") or "").strip(),
+            "contact_person": str(item.get("contact_person") or item.get("director") or "").strip(),
+            "category": str(item.get("category") or "Здание").strip(),
+            "functional_hazard": fpo or "Ф3.1",
+            "fire_hazard_category": str(item.get("fire_hazard_category") or "В").strip().upper() or "В",
+            "total_area": float(item.get("total_area") or 0.0),
+            "floors": int(item.get("floors") or 1),
+            "notes": str(item.get("notes") or "").strip(),
+        })
+
+    # Сортировка по названию организации
+    cleaned_items.sort(key=lambda x: x["name"].lower())
+
+    return {
+        "ok": True,
+        "source": source_name,
+        "count": len(cleaned_items),
+        "items": cleaned_items
+    }
+
+
+def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[List[Dict[str, Any]]]:
+    """Запрос в нейросеть для структурирования организаций"""
+    api_key = p_cfg.get("api_key")
+    if not api_key:
+        return None
+
+    import ssl
+    provider = p_cfg.get("provider", "auto").lower()
+    model = p_cfg.get("model", "")
+    api_url = p_cfg.get("api_url", "https://api.deepseek.com/v1")
+
+    prompt = f"""
+Извлеки из следующего текста список всех найденных организаций, контрагентов или обслуживаемых объектов недвижимости.
+Для каждой организации определи доступные поля:
+- name: точное наименование (ООО, ПАО, ИП, наименование ТЦ, школы и т.д.)
+- inn: ИНН (строка цифр)
+- kpp: КПП (строка цифр, если есть)
+- ogrn: ОГРН / ОГРНИП (строка цифр, если есть)
+- address: фактический или юридический адрес
+- phone: контактный телефон
+- email: контактный email
+- contact_person: контактное лицо или директор
+- category: категория (Офис, Склад, Торговый центр, Школа, Производство, Больница, Здание)
+- functional_hazard: класс функциональной пожарной опасности по 123-ФЗ (Ф1.1, Ф1.2, Ф1.3, Ф2.1, Ф3.1, Ф3.2, Ф4.3, Ф5.1, Ф5.2 и т.д., по умолчанию Ф3.1)
+- fire_hazard_category: категория взрывопожароопасности (А, Б, В, Г, Д, Не категорируется, по умолчанию В)
+- total_area: общая площадь в м² (число float, если указана)
+- floors: этажность (число int, если указана)
+- notes: любые дополнительные примечания
+
+Верни СТРОГО JSON следующего формата без лишнего текста:
+{{
+  "organizations": [
+    {{
+      "name": "ООО Ромашка",
+      "inn": "7701234567",
+      "address": "г. Москва, ул. Ленина, д. 1",
+      "contact_person": "Иванов И.И.",
+      "phone": "+7 999 123-45-67",
+      "email": "info@romashka.ru",
+      "category": "Офис",
+      "functional_hazard": "Ф4.3",
+      "fire_hazard_category": "В",
+      "total_area": 1200.0,
+      "floors": 3,
+      "notes": ""
+    }}
+  ]
+}}
+
+Текст документа:
+\"\"\"
+{text_slice}
+\"\"\"
+"""
+    is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
+    is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
+    ssl_ctx = None
+
+    try:
+        if is_gigachat:
+            token = get_gigachat_token(api_key, p_cfg.get("scope", "GIGACHAT_API_PERS"))
+            if not token: return None
+            endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+            payload = {
+                "model": model or "GigaChat",
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+        elif is_yandex:
+            endpoint = api_url
+            folder_id = p_cfg.get("folder_id", "").strip()
+            auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
+            headers = {"Content-Type": "application/json", "Authorization": auth_header}
+            if folder_id: headers["x-folder-id"] = folder_id
+            yandex_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
+            payload = {
+                "modelUri": yandex_model,
+                "completionOptions": {"stream": False, "temperature": 0.1, "maxTokens": 3000},
+                "messages": [{"role": "user", "text": prompt}],
+            }
+        else:
+            endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            payload = {
+                "model": model or "deepseek-chat",
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {"type": "json_object"},
+            }
+
+        req_data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=req_data, headers=headers, method="POST")
+        urlopen_kwargs = {"timeout": 30}
+        if ssl_ctx: urlopen_kwargs["context"] = ssl_ctx
+
+        with urllib.request.urlopen(req, **urlopen_kwargs) as resp:
+            body = resp.read().decode("utf-8")
+            res_json = json.loads(body)
+            if is_yandex:
+                txt = res_json["result"]["alternatives"][0]["message"]["text"]
+            elif is_gigachat:
+                txt = res_json["choices"][0]["message"]["content"]
+            else:
+                txt = res_json["choices"][0]["message"]["content"]
+
+            txt = txt.strip()
+            if "```json" in txt:
+                txt = txt.split("```json", 1)[1].split("```", 1)[0]
+            elif "```" in txt:
+                txt = txt.split("```", 1)[1].split("```", 1)[0]
+
+            parsed = json.loads(txt.strip())
+            if isinstance(parsed, dict) and "organizations" in parsed:
+                return parsed["organizations"]
+            elif isinstance(parsed, list):
+                return parsed
+    except Exception as e:
+        logger.warning("Ошибка вызова LLM для парсинга организаций: %s", e)
+    return None
+
+
+def _rule_based_parse_orgs(text: str) -> List[Dict[str, Any]]:
+    """Экспертный эвристический парсер реквизитов организаций (regex + паттерны РФ)"""
+    import re
+    results = []
+
+    # Разделяем текст на блоки по строкам или разделителям
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    
+    # Поиск ИНН, КПП, ОГРН, email, телефонов
+    inn_pattern = re.compile(r'\b(?:ИНН[:\s]*)?(\d{10}|\d{12})\b', re.IGNORECASE)
+    phone_pattern = re.compile(r'(?:\+7|8)[\s\-\(]*\d{3}[\s\-\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}')
+    email_pattern = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')
+    fpo_pattern = re.compile(r'\b(Ф\d(?:\.\d)?)\b', re.IGNORECASE)
+
+    current_org: Optional[Dict[str, Any]] = None
+
+    def flush_current():
+        nonlocal current_org
+        if current_org and current_org.get("name"):
+            results.append(current_org)
+        current_org = None
+
+    org_starter_regex = re.compile(
+        r'^(?:ООО|ПАО|АО|ЗАО|ИП|МУП|ГУП|ГБОУ|МАОУ|ФКУ|НКО|ТСЖ|ЖСК|УК|Компания|Организация|Предприятие|ТЦ|БЦ|Завод|Школа|Больница|Детский сад)\b',
+        re.IGNORECASE
+    )
+
+    for line in lines:
+        # Проверяем, начинается ли строка с новой организации или табличного разделителя
+        parts = [p.strip() for p in re.split(r'[\t|;]', line) if p.strip()]
+        
+        # Если строка содержит табличные колонки
+        if len(parts) >= 2:
+            name_candidate = parts[0]
+            inn_candidate = ""
+            addr_candidate = ""
+            for p in parts[1:]:
+                im = inn_pattern.search(p)
+                if im and not inn_candidate:
+                    inn_candidate = im.group(1)
+                elif ("г." in p or "ул." in p or "обл." in p or "д." in p) and not addr_candidate:
+                    addr_candidate = p
+
+            if len(name_candidate) >= 3 and not name_candidate.lower().startswith("наименов"):
+                flush_current()
+                results.append({
+                    "name": name_candidate,
+                    "inn": inn_candidate,
+                    "address": addr_candidate,
+                    "phone": "",
+                    "email": "",
+                    "contact_person": "",
+                    "category": get_preset_for_building_type(name_candidate).get("category", "Здание"),
+                    "functional_hazard": get_preset_for_building_type(name_candidate).get("functional_hazard", "Ф3.1"),
+                    "fire_hazard_category": get_preset_for_building_type(name_candidate).get("fire_hazard_category", "В"),
+                    "total_area": 0.0,
+                    "floors": 1,
+                    "notes": "Импортировано из таблицы",
+                })
+                continue
+
+        # Обычная строковая эвристика
+        is_new_org = bool(org_starter_regex.match(line)) or ("«" in line and "»" in line)
+        if is_new_org:
+            flush_current()
+            current_org = {
+                "name": line,
+                "inn": "",
+                "address": "",
+                "phone": "",
+                "email": "",
+                "contact_person": "",
+                "category": get_preset_for_building_type(line).get("category", "Здание"),
+                "functional_hazard": get_preset_for_building_type(line).get("functional_hazard", "Ф3.1"),
+                "fire_hazard_category": get_preset_for_building_type(line).get("fire_hazard_category", "В"),
+                "total_area": 0.0,
+                "floors": 1,
+                "notes": "",
+            }
+        else:
+            if not current_org:
+                # Первая попавшаяся строка как название
+                if len(line) > 3 and not line.startswith(("-", "#", "=", "*")):
+                    current_org = {
+                        "name": line,
+                        "inn": "",
+                        "address": "",
+                        "phone": "",
+                        "email": "",
+                        "contact_person": "",
+                        "category": get_preset_for_building_type(line).get("category", "Здание"),
+                        "functional_hazard": get_preset_for_building_type(line).get("functional_hazard", "Ф3.1"),
+                        "fire_hazard_category": get_preset_for_building_type(line).get("fire_hazard_category", "В"),
+                        "total_area": 0.0,
+                        "floors": 1,
+                        "notes": "",
+                    }
+                    continue
+
+            # Дополняем реквизиты текущей организации
+            if current_org:
+                im = inn_pattern.search(line)
+                if im and not current_org["inn"]:
+                    current_org["inn"] = im.group(1)
+
+                pm = phone_pattern.search(line)
+                if pm and not current_org["phone"]:
+                    current_org["phone"] = pm.group(0)
+
+                em = email_pattern.search(line)
+                if em and not current_org["email"]:
+                    current_org["email"] = em.group(0)
+
+                fm = fpo_pattern.search(line)
+                if fm:
+                    current_org["functional_hazard"] = fm.group(1).upper()
+
+                if any(kw in line.lower() for kw in ["г.", "ул.", "пер.", "пр-кт", "шоссе", "обл.", "дом", "лит."]):
+                    if not current_org["address"]:
+                        current_org["address"] = line
+
+    flush_current()
+
+    # Если вообще ничего не нашлось, но есть строки — создаём объекты по строкам
+    if not results and lines:
+        for ln in lines:
+            if len(ln) >= 3 and not ln.startswith(("-", "=", "#")):
+                preset = get_preset_for_building_type(ln)
+                results.append({
+                    "name": ln,
+                    "inn": "",
+                    "address": "",
+                    "phone": "",
+                    "email": "",
+                    "contact_person": "",
+                    "category": preset.get("category", "Здание"),
+                    "functional_hazard": preset.get("functional_hazard", "Ф3.1"),
+                    "fire_hazard_category": preset.get("fire_hazard_category", "В"),
+                    "total_area": 0.0,
+                    "floors": 1,
+                    "notes": "",
+                })
+
+    return results
+
+

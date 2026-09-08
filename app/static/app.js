@@ -55,7 +55,9 @@ const toast = notice;
 
 
 function openModal(html) {
-  $("#modalBox").innerHTML = html;
+  if (html !== undefined) {
+    $("#modalBox").innerHTML = html;
+  }
   $("#modalOverlay").classList.remove("hidden");
 }
 function closeModal() { $("#modalOverlay").classList.add("hidden"); }
@@ -348,12 +350,13 @@ async function loadObjects() {
   $("#page-objects").innerHTML =
     '<div class="toolbar">' +
       '<button class="btn btn-amber" data-action="obj-new">+ Новый объект</button>' +
+      '<button class="btn btn-ghost" data-action="open-import" data-target="objects" title="Импорт объектов и организаций из текста или файлов DOC, Excel, PDF">📥 Импорт через ИИ</button>' +
       aiToolbarBtn +
       '<div class="search-box"><input type="text" class="inp" id="objSearch" placeholder="Поиск объектов…"></div>' +
       '<span class="toolbar-hint">Всего: <span id="objCount">' + r.data.length + '</span></span>' +
     '</div>' +
     '<div class="panel table-panel"><table id="objectsTable"><thead><tr><th>Объект</th><th>Класс ФПО / Кат.</th><th>Площадь/Этажи</th><th>Назначений</th><th>Выполнено</th><th>Просрочено</th><th></th></tr></thead><tbody>' +
-    (rows || '<tr><td colspan="7"><div class="empty"><span class="big">⌂</span>Объектов пока нет — добавьте первый</div></td></tr>') +
+    (rows || '<tr><td colspan="7"><div class="empty"><span class="big">⌂</span>Объектов пока нет — добавьте первый или импортируйте через ИИ</div></td></tr>') +
     "</tbody></table></div>";
 
   const searchInput = $("#objSearch");
@@ -776,12 +779,18 @@ async function saveAssignment() {
 }
 
 /* ---------- журнал ---------- */
-let jStatus = "", jObj = "";
+let jStatus = "", jObj = "", jDateFrom = "", jDateTo = "";
 async function loadJournal() {
   await ensureCaches();
-  let url = "/api/executions/?year=" + new Date().getFullYear();
-  if (jStatus) url += "&status=" + encodeURIComponent(jStatus);
-  if (jObj) url += "&object_id=" + encodeURIComponent(jObj);
+  let url = "/api/executions/?";
+  const params = [];
+  if (jDateFrom) params.push("date_from=" + encodeURIComponent(jDateFrom));
+  if (jDateTo) params.push("date_to=" + encodeURIComponent(jDateTo));
+  if (!jDateFrom && !jDateTo) params.push("year=" + new Date().getFullYear());
+  if (jStatus) params.push("status=" + encodeURIComponent(jStatus));
+  if (jObj) params.push("object_id=" + encodeURIComponent(jObj));
+  url += params.join("&");
+
   const r = await api(url);
   const rows = (r.ok ? r.data : []).slice().reverse().map(e =>
     '<tr class="clickable" data-action="exec-open" data-id="' + esc(e.ID) + '">' +
@@ -792,17 +801,77 @@ async function loadJournal() {
     "<td>" + statusBadge(e.Status, e.IsOverdue) + "</td>" +
     '<td class="mono">' + (e.ActualDate ? fmtDate(e.ActualDate) : "—") + "</td>" +
     "<td>" + (esc(e.PerformedBy) || "—") + "</td></tr>").join("");
+
+  const countText = r.ok && r.data ? `Найдено записей: ${r.data.length}` : "";
+
   $("#page-journal").innerHTML =
     '<div class="toolbar">' +
       selectHtml("jFStatus", ["Запланировано", "Выполнено", "Перенесено", "Отменено"].map(s => ({ value: s, label: s })), jStatus, "Все статусы") +
       selectHtml("jFObj", objectsCache.map(o => ({ value: o.ID, label: o.Name })), jObj, "Все объекты") +
-      '<span class="toolbar-hint">Клик по строке — открыть и изменить</span>' +
+      '<div class="toolbar-date-group">' +
+        '<label>Период:</label>' +
+        '<input type="date" class="inp" id="jFDateFrom" value="' + esc(jDateFrom) + '" title="С даты">' +
+        '<span style="color:var(--text-3);">—</span>' +
+        '<input type="date" class="inp" id="jFDateTo" value="' + esc(jDateTo) + '" title="По дату">' +
+      '</div>' +
+      '<button class="toolbar-quick-btn" id="jQuickToday" title="За сегодня">Сегодня</button>' +
+      '<button class="toolbar-quick-btn" id="jQuickMonth" title="За текущий месяц">Этот месяц</button>' +
+      '<button class="toolbar-quick-btn" id="jQuickYear" title="За текущий год">Этот год</button>' +
+      (jDateFrom || jDateTo || jStatus || jObj ? '<button class="toolbar-quick-btn" id="jQuickReset" title="Сбросить все фильтры" style="color:var(--ember);border-color:rgba(242,112,138,0.3);">✕ Сброс</button>' : '') +
+      '<span class="toolbar-hint" style="margin-left:auto;">' + esc(countText) + ' · Клик по строке — открыть</span>' +
     "</div>" +
     '<div class="panel table-panel"><table><thead><tr><th>План</th><th>Объект</th><th>Работа</th><th>Периодичность</th><th>Статус</th><th>Факт</th><th>Исполнитель</th></tr></thead><tbody>' +
-    (rows || '<tr><td colspan="7"><div class="empty"><span class="big">≡</span>Записей нет</div></td></tr>') +
+    (rows || '<tr><td colspan="7"><div class="empty"><span class="big">≡</span>Записей за указанный период нет</div></td></tr>') +
     "</tbody></table></div>";
+
   $("#jFStatus").addEventListener("change", e => { jStatus = e.target.value; loadJournal(); });
   $("#jFObj").addEventListener("change", e => { jObj = e.target.value; loadJournal(); });
+  $("#jFDateFrom").addEventListener("change", e => { jDateFrom = e.target.value; loadJournal(); });
+  $("#jFDateTo").addEventListener("change", e => { jDateTo = e.target.value; loadJournal(); });
+
+  const btnToday = $("#jQuickToday");
+  if (btnToday) {
+    btnToday.onclick = () => {
+      const td = todayISO();
+      jDateFrom = td;
+      jDateTo = td;
+      loadJournal();
+    };
+  }
+
+  const btnMonth = $("#jQuickMonth");
+  if (btnMonth) {
+    btnMonth.onclick = () => {
+      const n = new Date();
+      const y = n.getFullYear();
+      const m = String(n.getMonth() + 1).padStart(2, "0");
+      const lastDay = new Date(y, n.getMonth() + 1, 0).getDate();
+      jDateFrom = `${y}-${m}-01`;
+      jDateTo = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
+      loadJournal();
+    };
+  }
+
+  const btnYear = $("#jQuickYear");
+  if (btnYear) {
+    btnYear.onclick = () => {
+      const y = new Date().getFullYear();
+      jDateFrom = `${y}-01-01`;
+      jDateTo = `${y}-12-31`;
+      loadJournal();
+    };
+  }
+
+  const btnReset = $("#jQuickReset");
+  if (btnReset) {
+    btnReset.onclick = () => {
+      jStatus = "";
+      jObj = "";
+      jDateFrom = "";
+      jDateTo = "";
+      loadJournal();
+    };
+  }
 }
 
 async function execModal(id) {
@@ -946,6 +1015,7 @@ document.addEventListener("click", async ev => {
     case "open-ai": openAiAdvisorModal(); break;
     case "ai-audit-obj": openAiAdvisorModal(btn.dataset.id); break;
     case "open-help": openHelpModal(); break;
+    case "open-import": openImportModal(btn.dataset.target || "objects"); break;
 
 
     case "obj-new": objectFormModal(); break;
@@ -1092,6 +1162,7 @@ async function loadInvoices() {
       <button class="btn btn-amber" data-action="inv-new">+ Новый счёт</button>
       <div class="search-box"><input type="text" class="inp" id="invSearch" placeholder="Поиск счетов…"></div>
       <button class="btn btn-ghost" data-action="inv-settings">🏛 Организации и реквизиты</button>
+      <button class="btn btn-ghost" data-action="open-import" data-target="companies" title="Импорт организаций и реквизитов из текста или файлов DOC, Excel, PDF">📥 Импорт организаций</button>
       <span class="toolbar-hint">Всего: <span id="invCount">${r.data.length}</span></span>
     </div>
     <div class="panel table-panel">
@@ -2420,76 +2491,119 @@ function openHelpModal(initialTab = "steps") {
 
       <!-- ВКЛАДКА 1: 5 ШАГОВ -->
       <div id="helpTabSteps" class="${initialTab === 'steps' ? '' : 'hidden'}">
+        <div class="help-guide-summary">
+          <div>
+            <div class="help-guide-summary-title">🚀 Маршрут работы с интерфейсом за 5 простых шагов</div>
+            <div class="help-guide-summary-sub">От заведения первого объекта до выставления счёта и закрытия акта выполненных работ</div>
+          </div>
+          <div class="help-steps-indicator" title="5 ключевых этапов">
+            <span class="help-indicator-dot done">1</span>
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <span class="help-indicator-dot done">2</span>
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <span class="help-indicator-dot done">3</span>
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <span class="help-indicator-dot done">4</span>
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <span class="help-indicator-dot done">5</span>
+          </div>
+        </div>
+
         <div class="flow-steps">
           
+          <!-- ШАГ 1 -->
           <div class="flow-step-card">
             <div class="flow-step-num">1</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Добавьте объект защиты</span>
+                <span>Шаг 1: Добавьте объекты защиты</span>
                 <span class="tag tag-fpo">Ф1–Ф5 по 123-ФЗ</span>
               </div>
               <div class="flow-step-desc">
-                Внесите здание или сооружение в реестр: укажите адрес, класс функциональной пожарной опасности (ФПО), этажность и категорию. Вы также можете использовать кнопку <b>«🤖 ИИ-конструктор»</b>, чтобы классифицировать объект по названию одной кнопкой.
+                Перейдите во вкладку <b>«Объекты»</b> и нажмите кнопку <b>«+ Новый объект»</b>. Заполните наименование, фактический адрес, этажность и класс пожарной опасности (ФПО).
+              </div>
+              <div class="flow-step-points">
+                <div class="flow-step-point"><span class="point-ico">✦</span> ИИ-конструктор: назовите объект (например «Школа №5») и ИИ сам определит класс Ф1.2.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Карточка объекта хранит контакты ответственных лиц и историю всех систем.</div>
               </div>
             </div>
-            <button class="btn btn-amber btn-sm flow-step-btn" data-action="go-page" data-target="objects">Перейти к Объектам →</button>
+            <button class="btn btn-amber btn-sm flow-step-btn" data-action="go-page" data-target="objects">1. К Объектам →</button>
           </div>
 
+          <!-- ШАГ 2 -->
           <div class="flow-step-card">
             <div class="flow-step-num">2</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Проверьте справочник видов работ</span>
+                <span>Шаг 2: Настройте справочник «Виды работ»</span>
                 <span class="tag" style="background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3);">СП 484 / СП 486</span>
               </div>
               <div class="flow-step-desc">
-                В системе предзаполнены все регламентные работы: АПС, СОУЭ, АУПТ, ВПВ, дымоудаление и первичные средства с нормативными шифрами ПБ-XX.YY. При необходимости добавьте специфичные работы вашей компании.
+                В разделе <b>«Виды работ»</b> собраны все нормативные регламенты: АПС, СОУЭ, АУПТ, ВПВ, дымоудаление и огнетушители с кодами ПБ-XX.YY.
+              </div>
+              <div class="flow-step-points">
+                <div class="flow-step-point"><span class="point-ico">✦</span> Базовые работы уже предзаполнены по нормам МЧС РФ и ГОСТ.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Можно задавать регламентную периодичность (ежемесячно, ежеквартально, ежегодно) и стоимость.</div>
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="works">Виды работ →</button>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="works">2. Виды работ →</button>
           </div>
 
+          <!-- ШАГ 3 -->
           <div class="flow-step-card">
             <div class="flow-step-num">3</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Создайте Назначения и автографик</span>
-                <span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3);">Календарный план</span>
+                <span>Шаг 3: Закрепите Назначения и сформируйте график</span>
+                <span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3);">Автопланирование</span>
               </div>
               <div class="flow-step-desc">
-                Привяжите регламентные работы к объекту с нужной периодичностью (месяц, квартал, год). Алгоритм автоматически сгенерирует график выездов на нужный период с гарантией отсутствия наложений и смещений дат.
+                В разделе <b>«Назначения»</b> свяжите Объект с конкретными Видами работ. Система автоматически рассчитает даты всех выездов на год вперёд без накладок.
+              </div>
+              <div class="flow-step-points">
+                <div class="flow-step-point"><span class="point-ico">✦</span> Кнопка «Сформировать график» создаёт календарную сетку в один клик.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Возможность указать закреплённого мастера/инженера и интервал ТО.</div>
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="assignments">Назначения →</button>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="assignments">3. Назначения →</button>
           </div>
 
+          <!-- ШАГ 4 -->
           <div class="flow-step-card">
             <div class="flow-step-num">4</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Отслеживайте план и фиксируйте факт</span>
-                <span class="tag" style="background:rgba(245,165,36,0.15);color:var(--amber-2);border:1px solid rgba(245,165,36,0.3);">Календарь и Журнал</span>
+                <span>Шаг 4: Контролируйте Календарь и Журнал выездов</span>
+                <span class="tag" style="background:rgba(245,165,36,0.15);color:var(--amber-2);border:1px solid rgba(245,165,36,0.3);">План vs Факт</span>
               </div>
               <div class="flow-step-desc">
-                В <b>Календаре</b> визуально видны все плановые даты. По факту выполнения кликните на событие и нажмите «Отметить выполненным». В <b>Журнале</b> доступно пакетное закрытие работ сразу за выбранный месяц.
+                В <b>«Календаре»</b> наглядно видны даты выездов по цветам (синий — план, зелёный — факт, красный — просрочено). Кликните по событию, чтобы закрыть его или перенести.
+              </div>
+              <div class="flow-step-points">
+                <div class="flow-step-point"><span class="point-ico">✦</span> В <b>«Журнале»</b> доступно пакетное закрытие всех работ за выбранный месяц.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Звуковые и визуальные напоминания (колокольчик в шапке) предупредят о сроках.</div>
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="calendar">В Календарь →</button>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="calendar">4. В Календарь →</button>
           </div>
 
+          <!-- ШАГ 5 -->
           <div class="flow-step-card">
             <div class="flow-step-num">5</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Выставляйте Счета и печатайте Акты</span>
-                <span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">А4 / PDF</span>
+                <span>Шаг 5: Выставляйте Счета и печатайте Акты</span>
+                <span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">Документооборот</span>
               </div>
               <div class="flow-step-desc">
-                Формируйте счета от любой из ваших организаций-исполнителей в один клик. Система автоматически присвоит номер с префиксом и сгенерирует чистые печатные формы Счёта и Акта сдачи-приемки по стандартам РФ.
+                В разделе <b>«Счета»</b> нажмите «+ Выставить счёт». Выберите организацию-исполнителя, объект и период — система автоматически подтянет выполненные работы и рассчитает сумму.
+              </div>
+              <div class="flow-step-points">
+                <div class="flow-step-point"><span class="point-ico">✦</span> Готовые печатные формы счёта и двустороннего Акта сдачи-приёмки (А4 / PDF).</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Автоматическая нумерация с префиксами и отслеживание статуса оплаты.</div>
               </div>
             </div>
-            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="invoices">Счета и Акты →</button>
+            <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="invoices">5. Счета и Акты →</button>
           </div>
 
         </div>
@@ -2599,7 +2713,7 @@ function openHelpModal(initialTab = "steps") {
     btn.onclick = () => {
       const page = btn.dataset.target;
       closeModal();
-      setPage(page);
+      showPage(page);
     };
   });
 
@@ -2623,7 +2737,7 @@ function openHelpModal(initialTab = "steps") {
     try {
       const r = await api("/api/ai/ask", {
         question: q.trim(),
-        contextPage: state.page || "dashboard"
+        contextPage: currentPage || "dashboard"
       });
       if (r.ok && r.answer) {
         if (hostAi) {
@@ -2631,15 +2745,15 @@ function openHelpModal(initialTab = "steps") {
             <div class="ai-answer-card">
               <div class="ai-answer-head">
                 <span>🤖 Ответ ассистента</span>
-                <span>\${escapeHtml(r.source || "Экспертная база ПБ")}</span>
+                <span>${esc(r.source || "Экспертная база ПБ")}</span>
               </div>
-              <div style="line-height:1.6;">\${r.answer.replace(/\\n/g, '<br>')}</div>
+              <div style="line-height:1.6;">${r.answer.replace(/\n/g, '<br>')}</div>
             </div>
           `;
         }
       } else {
         if (hostAi) {
-          hostAi.innerHTML = `<div class="ai-answer-card" style="color:var(--red);">Не удалось получить ответ: \${escapeHtml(r.detail || "Ошибка сервиса")}</div>`;
+          hostAi.innerHTML = `<div class="ai-answer-card" style="color:var(--red);">Не удалось получить ответ: ${esc(r.detail || "Ошибка сервиса")}</div>`;
         }
       }
     } catch (err) {
@@ -2664,5 +2778,417 @@ function openHelpModal(initialTab = "steps") {
   });
 }
 
+// -------------------------------------------------------------
+// МОДАЛЬНОЕ ОКНО ИИ-ИМПОРТА ОРГАНИЗАЦИЙ И ДОКУМЕНТОВ
+// -------------------------------------------------------------
+let importModalState = {
+  target: "objects", // "objects" или "companies"
+  tab: "text", // "text" или "file"
+  parsedItems: [],
+  source: "",
+  isLoading: false,
+};
 
+function openImportModal(initialTarget = "objects") {
+  importModalState.target = initialTarget;
+  importModalState.tab = "text";
+  importModalState.parsedItems = [];
+  importModalState.source = "";
+  importModalState.isLoading = false;
 
+  renderImportModal();
+}
+
+function renderImportModal() {
+  const c = $("#modalBox");
+  c.className = "modal import-modal";
+
+  const isObj = importModalState.target === "objects";
+  const hasResults = importModalState.parsedItems.length > 0;
+
+  c.innerHTML = `
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" style="display:flex;align-items:center;gap:8px;">
+          <span>📥</span> Интеллектуальный импорт организаций через ИИ
+        </div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:2px;">
+          Вставьте список текстом или прикрепите документ Word, Excel, PDF — ИИ извлечет реквизиты и отсортирует по организациям
+        </div>
+      </div>
+      <button class="btn-close" id="btnImportClose" title="Закрыть">✕</button>
+    </div>
+
+    <div class="modal-body" style="padding-top:14px;">
+      <!-- ВЫБОР ЦЕЛЕВОГО РЕЕСТРА -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--panel-2);padding:10px 14px;border-radius:10px;border:1px solid var(--line);margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);">Куда импортировать данные:</div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn btn-sm ${isObj ? 'btn-amber' : 'btn-ghost'}" id="btnTargetObjects">
+            ⌂ В Объекты защиты (клиенты)
+          </button>
+          <button type="button" class="btn btn-sm ${!isObj ? 'btn-amber' : 'btn-ghost'}" id="btnTargetCompanies">
+            🏛 В Наши организации (счета)
+          </button>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКИ ИСТОЧНИКА: ТЕКСТ / ФАЙЛ -->
+      <div class="help-tabs" style="margin-bottom:14px;">
+        <button class="help-tab-btn ${importModalState.tab === 'text' ? 'active' : ''}" id="tabImportText">
+          📝 Вставка списком (текст)
+        </button>
+        <button class="help-tab-btn ${importModalState.tab === 'file' ? 'active' : ''}" id="tabImportFile">
+          📎 Прикрепить файл (Word / Excel / PDF)
+        </button>
+      </div>
+
+      <!-- ФОРМА: ТЕКСТ -->
+      <div id="importTabText" class="${importModalState.tab === 'text' ? '' : 'hidden'}">
+        <div class="field">
+          <label style="display:flex;justify-content:space-between;">
+            <span>Вставьте текст, таблицу, список контрагентов или реквизитов:</span>
+            <span class="sub" style="font-weight:normal;">ИИ сам найдет названия, ИНН, адреса, площади и классы ФПО</span>
+          </label>
+          <textarea class="inp" id="importRawText" rows="6" placeholder="Пример:
+1. ООО «СтройТех», ИНН 7701234567, г. Москва, ул. Ленина, д. 5, оф. 10 (Офисный центр, Ф4.3)
+2. ТЦ «Галерея», г. Пермь, Комсомольский пр-кт, 15, площадь 4500 м2, 3 этажа
+3. ИП Сидоров А.В. (Склад запчастей, Категория В, Ф5.2)..."></textarea>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;">
+          <button class="btn btn-ghost" id="btnImportClearText">Очистить</button>
+          <button class="btn btn-amber" id="btnRunParseText">
+            <span>🤖 Распознать и отсортировать через ИИ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ФОРМА: ФАЙЛ -->
+      <div id="importTabFile" class="${importModalState.tab === 'file' ? '' : 'hidden'}">
+        <input type="file" id="importFileInput" accept=".docx,.doc,.xlsx,.xls,.pdf,.txt,.csv" style="display:none;">
+        <div class="import-dropzone" id="importDropzone">
+          <div class="import-dropzone-ico">📄</div>
+          <div class="import-dropzone-title">Перетащите сюда документ или кликните для выбора</div>
+          <div class="import-dropzone-sub">Поддерживаются форматы: Word (.docx, .doc), Excel (.xlsx, .xls), Adobe PDF (.pdf), TXT, CSV</div>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;">Выбрать файл на диске</button>
+        </div>
+        <div id="importSelectedFileInfo" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;background:var(--panel-2);padding:10px 14px;border-radius:8px;border:1px solid var(--amber);">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px;">📎</span>
+            <div>
+              <b id="importFileName" style="color:var(--text);font-size:13px;"></b>
+              <div id="importFileSize" class="sub"></div>
+            </div>
+          </div>
+          <button class="btn btn-amber btn-sm" id="btnRunParseFile">🤖 Распознать файл через ИИ</button>
+        </div>
+      </div>
+
+      <!-- БЛОК ЗАГРУЗКИ -->
+      <div id="importLoadingHost" class="${importModalState.isLoading ? '' : 'hidden'}" style="margin:20px 0;text-align:center;padding:24px;background:var(--panel-2);border-radius:12px;border:1px solid var(--line);">
+        <div class="spin" style="font-size:28px;margin-bottom:10px;">↻</div>
+        <div style="font-weight:700;color:var(--amber-2);font-size:14px;">ИИ анализирует документ и классифицирует организации...</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px;">Извлечение реквизитов, определение классов пожарной опасности (123-ФЗ) и сортировка по алфавиту</div>
+      </div>
+
+      <!-- РЕЗУЛЬТАТЫ РАСПОЗНАВАНИЯ -->
+      <div id="importResultsHost" class="${hasResults ? '' : 'hidden'}">
+        <div class="import-stats-bar">
+          <div>
+            <span style="color:var(--moss);font-weight:700;">✓ Распознано организаций: ${importModalState.parsedItems.length}</span>
+            <span style="color:var(--text-3);margin-left:8px;">(Источник: ${esc(importModalState.source)})</span>
+          </div>
+          <div style="font-size:12px;color:var(--amber-2);">
+            🔤 Автоматически отсортировано по организациям (А-Я)
+          </div>
+        </div>
+
+        <div class="import-preview-table-wrap">
+          <table class="import-preview-table" id="importPreviewTable">
+            <thead>
+              <tr>
+                <th style="width:36px;"><input type="checkbox" id="importCheckAll" checked title="Выбрать все"></th>
+                <th>№</th>
+                <th>Организация / Объект</th>
+                <th>ИНН</th>
+                <th>Адрес</th>
+                <th>${isObj ? 'ФПО / Кат.' : 'КПП / ОГРН'}</th>
+                <th>${isObj ? 'Площадь / Эт.' : 'Контакты'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${importModalState.parsedItems.map((item, idx) => `
+                <tr>
+                  <td><input type="checkbox" class="import-row-check" data-idx="${idx}" checked></td>
+                  <td class="mono" style="color:var(--text-3);">${idx + 1}</td>
+                  <td>
+                    <b>${esc(item.name)}</b>
+                    ${item.category ? `<div class="sub">${esc(item.category)}</div>` : ''}
+                  </td>
+                  <td class="mono">${esc(item.inn || "—")}</td>
+                  <td><div style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(item.address)}">${esc(item.address || "—")}</div></td>
+                  <td>
+                    ${isObj ? `
+                      <span class="tag tag-fpo" style="font-size:11px;">${esc(item.functional_hazard || "Ф3.1")}</span>
+                      <span class="tag tag-fire-cat" style="font-size:11px;margin-left:4px;">${esc(item.fire_hazard_category || "В")}</span>
+                    ` : `
+                      <span class="mono" style="font-size:11px;">${esc(item.kpp || "—")}</span>
+                    `}
+                  </td>
+                  <td>
+                    ${isObj ? `
+                      <span class="mono" style="font-size:11px;">${item.total_area ? item.total_area + ' м²' : '—'} ${item.floors ? '· ' + item.floors + ' эт.' : ''}</span>
+                    ` : `
+                      <span style="font-size:11px;">${esc(item.phone || item.email || "—")}</span>
+                    `}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;">
+      <button class="btn btn-ghost" id="btnImportCancel">Отмена</button>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span id="importSelectedCount" style="font-size:12px;color:var(--text-2);">
+          ${hasResults ? `Выбрано: ${importModalState.parsedItems.length} из ${importModalState.parsedItems.length}` : ''}
+        </span>
+        <button class="btn btn-amber" id="btnSaveBatchImport" ${hasResults ? '' : 'disabled'}>
+          📥 Добавить выбранные в ${isObj ? 'Объекты' : 'Организации'}
+        </button>
+      </div>
+    </div>
+  `;
+
+  openModal();
+
+  // Навешивание событий
+  const btnClose = $("#btnImportClose");
+  const btnCancel = $("#btnImportCancel");
+  if (btnClose) btnClose.onclick = closeModal;
+  if (btnCancel) btnCancel.onclick = closeModal;
+
+  // Переключение целевого реестра
+  const btnTObj = $("#btnTargetObjects");
+  const btnTComp = $("#btnTargetCompanies");
+  if (btnTObj) {
+    btnTObj.onclick = () => {
+      importModalState.target = "objects";
+      renderImportModal();
+    };
+  }
+  if (btnTComp) {
+    btnTComp.onclick = () => {
+      importModalState.target = "companies";
+      renderImportModal();
+    };
+  }
+
+  // Переключение вкладок Текст / Файл
+  const tabText = $("#tabImportText");
+  const tabFile = $("#tabImportFile");
+  if (tabText) {
+    tabText.onclick = () => {
+      importModalState.tab = "text";
+      renderImportModal();
+    };
+  }
+  if (tabFile) {
+    tabFile.onclick = () => {
+      importModalState.tab = "file";
+      renderImportModal();
+    };
+  }
+
+  // Очистка текста
+  const btnClear = $("#btnImportClearText");
+  if (btnClear) {
+    btnClear.onclick = () => {
+      const ta = $("#importRawText");
+      if (ta) ta.value = "";
+    };
+  }
+
+  // Запуск распознавания текста
+  const btnRunText = $("#btnRunParseText");
+  if (btnRunText) {
+    btnRunText.onclick = async () => {
+      const textVal = $("#importRawText") ? $("#importRawText").value.trim() : "";
+      if (!textVal) {
+        toast("Вставьте текст или список для распознавания", "error");
+        return;
+      }
+      importModalState.isLoading = true;
+      renderImportModal();
+
+      try {
+        const res = await api("/api/ai/import/parse-text", { text: textVal });
+        importModalState.isLoading = false;
+        if (res.ok && Array.isArray(res.items)) {
+          importModalState.parsedItems = res.items;
+          importModalState.source = res.source || "ИИ";
+          notice(`Распознано и отсортировано ${res.items.length} организаций`);
+        } else {
+          toast(res.detail || "Не удалось распознать данные", "error");
+        }
+      } catch (err) {
+        importModalState.isLoading = false;
+        toast("Ошибка обращения к сервису распознавания", "error");
+      }
+      renderImportModal();
+    };
+  }
+
+  // Drag & drop и выбор файла
+  const dropzone = $("#importDropzone");
+  const fileInput = $("#importFileInput");
+  let currentFile = null;
+
+  if (dropzone && fileInput) {
+    dropzone.onclick = () => fileInput.click();
+
+    ["dragenter", "dragover"].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      }, false);
+    });
+
+    ["dragleave", "drop"].forEach(eventName => {
+      dropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+      }, false);
+    });
+
+    dropzone.addEventListener("drop", (e) => {
+      const dt = e.dataTransfer;
+      if (dt && dt.files && dt.files.length > 0) {
+        handleFileSelected(dt.files[0]);
+      }
+    });
+
+    fileInput.onchange = (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleFileSelected(e.target.files[0]);
+      }
+    };
+  }
+
+  function handleFileSelected(file) {
+    currentFile = file;
+    const infoBox = $("#importSelectedFileInfo");
+    const nameEl = $("#importFileName");
+    const sizeEl = $("#importFileSize");
+    if (infoBox && nameEl && sizeEl) {
+      infoBox.classList.remove("hidden");
+      nameEl.textContent = file.name;
+      const szKb = (file.size / 1024).toFixed(1);
+      sizeEl.textContent = `${szKb} КБ · Нажмите кнопку для распознавания`;
+    }
+  }
+
+  // Запуск распознавания файла
+  const btnRunFile = $("#btnRunParseFile");
+  if (btnRunFile) {
+    btnRunFile.onclick = async () => {
+      if (!currentFile) {
+        toast("Выберите файл", "error");
+        return;
+      }
+      importModalState.isLoading = true;
+      renderImportModal();
+
+      try {
+        const formData = new FormData();
+        formData.append("file", currentFile);
+
+        const resp = await fetch("/api/ai/import/parse-file", {
+          method: "POST",
+          body: formData,
+        });
+        const res = await resp.json();
+        importModalState.isLoading = false;
+
+        if (resp.ok && res.ok && Array.isArray(res.items)) {
+          importModalState.parsedItems = res.items;
+          importModalState.source = `${res.filename} (${res.source || 'ИИ'})`;
+          notice(`Распознано из файла: ${res.items.length} организаций`);
+        } else {
+          toast(res.detail || "Не удалось извлечь данные из файла", "error");
+        }
+      } catch (err) {
+        importModalState.isLoading = false;
+        toast("Ошибка загрузки файла", "error");
+      }
+      renderImportModal();
+    };
+  }
+
+  // Чекбоксы выбора
+  const checkAll = $("#importCheckAll");
+  if (checkAll) {
+    checkAll.onchange = (e) => {
+      $$(".import-row-check").forEach(cb => cb.checked = e.target.checked);
+      updateSelectedCount();
+    };
+  }
+
+  c.querySelectorAll(".import-row-check").forEach(cb => {
+    cb.onchange = updateSelectedCount;
+  });
+
+  function updateSelectedCount() {
+    const checked = $$(".import-row-check:checked").length;
+    const total = importModalState.parsedItems.length;
+    const countEl = $("#importSelectedCount");
+    if (countEl) countEl.textContent = `Выбрано: ${checked} из ${total}`;
+    const btnSave = $("#btnSaveBatchImport");
+    if (btnSave) btnSave.disabled = (checked === 0);
+  }
+
+  // Сохранение выбранных
+  const btnSaveBatch = $("#btnSaveBatchImport");
+  if (btnSaveBatch) {
+    btnSaveBatch.onclick = async () => {
+      const selectedIndices = $$(".import-row-check:checked").map(cb => parseInt(cb.dataset.idx, 10));
+      if (!selectedIndices.length) {
+        toast("Выберите хотя бы одну организацию для добавления", "error");
+        return;
+      }
+
+      const itemsToSave = selectedIndices.map(idx => importModalState.parsedItems[idx]);
+      btnSaveBatch.disabled = true;
+      btnSaveBatch.textContent = "Сохранение...";
+
+      try {
+        const res = await api("/api/ai/import/save-batch", {
+          items: itemsToSave,
+          importAs: importModalState.target,
+        });
+
+        if (res.ok) {
+          notice(`Успешно добавлено ${res.created_count} организаций!`);
+          closeModal();
+          // Обновляем текущую страницу
+          if (importModalState.target === "objects") {
+            showPage("objects");
+          } else {
+            showPage("invoices");
+          }
+        } else {
+          toast(res.detail || "Ошибка при сохранении организаций", "error");
+          btnSaveBatch.disabled = false;
+          btnSaveBatch.textContent = "Добавить выбранные";
+        }
+      } catch (err) {
+        toast("Ошибка сети при сохранении", "error");
+        btnSaveBatch.disabled = false;
+        btnSaveBatch.textContent = "Добавить выбранные";
+      }
+    };
+  }
+}

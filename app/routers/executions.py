@@ -94,6 +94,8 @@ def list_executions(
     work_id: Optional[str] = None,
     year: Optional[int] = None,
     month: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
@@ -102,18 +104,31 @@ def list_executions(
         q = q.filter(Execution.object_id == object_id)
     if work_id:
         q = q.filter(Execution.work_type_id == work_id)
-    if month and not year:
-        year = date.today().year
-    if year and month:
-        q = q.filter(
-            Execution.planned_date >= date(year, month, 1),
-            Execution.planned_date < (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)),
-        )
-    elif year:
-        q = q.filter(
-            Execution.planned_date >= date(year, 1, 1),
-            Execution.planned_date <= date(year, 12, 31),
-        )
+    if date_from:
+        try:
+            df = date.fromisoformat(date_from)
+            q = q.filter(Execution.planned_date >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = date.fromisoformat(date_to)
+            q = q.filter(Execution.planned_date <= dt)
+        except ValueError:
+            pass
+    if not date_from and not date_to:
+        if month and not year:
+            year = date.today().year
+        if year and month:
+            q = q.filter(
+                Execution.planned_date >= date(year, month, 1),
+                Execution.planned_date < (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)),
+            )
+        elif year:
+            q = q.filter(
+                Execution.planned_date >= date(year, 1, 1),
+                Execution.planned_date <= date(year, 12, 31),
+            )
     if status:
         q = q.filter(Execution.status == status)
     items = q.order_by(Execution.planned_date).all()

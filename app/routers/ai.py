@@ -6,7 +6,7 @@ from datetime import date
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.models.object import Object
 from app.models.work_type import WorkType
 from app.models.assignment import Assignment
 from app.models.execution import Execution
+from app.models.company import Company
 from app.services.ai_service import (
     load_ai_config,
     get_expert_rules_recommendations,
@@ -23,7 +24,9 @@ from app.services.ai_service import (
     verify_llm_connection,
     get_provider_display_name,
     answer_assistant_question,
+    ai_parse_organizations,
 )
+from app.services.doc_parser import extract_text_from_file
 from app.services.periodicity import generate_schedule
 
 router = APIRouter()
@@ -293,3 +296,122 @@ def apply_recommendations(req: ApplyRecommendationsRequest, db: Session = Depend
         "created_executions_count": created_executions_total,
         "assignments": created_assignments,
     }
+
+
+class ParseTextRequest(BaseModel):
+    text: str
+
+
+@router.post("/import/parse-text")
+def parse_organizations_text(data: ParseTextRequest):
+    """
+    Распознавание списка организаций/объектов из вставленного текста с помощью ИИ.
+    Автоматически определяет реквизиты, классы пожарной опасности и сортирует по организациям.
+    """
+    res = ai_parse_organizations(data.text)
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "Не удалось распознать текст"))
+    return res
+
+
+@router.post("/import/parse-file")
+async def parse_organizations_file(file: UploadFile = File(...)):
+    """
+    Распознавание списка организаций/объектов из прикреплённого файла:
+    Word (DOCX, DOC), Excel (XLSX, XLS) или PDF.
+    Содержимое извлекается и передаётся в ИИ для распознавания и сортировки.
+    """
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(400, "Файл пуст")
+
+    filename = file.filename or "file.bin"
+    extracted_text = extract_text_from_file(contents, filename)
+
+    if not extracted_text or not extracted_text.strip():
+        raise HTTPException(400, f"Не удалось извлечь текст из файла {filename}. Убедитесь, что файл содержит текстовые данные.")
+
+    res = ai_parse_organizations(extracted_text)
+    res["filename"] = filename
+    res["text_length"] = len(extracted_text)
+    return res
+
+
+class BatchImportOrgsRequest(BaseModel):
+    items: List[dict]
+    importAs: Optional[str] = "objects"  # "objects" (объекты обслуживания) или "companies" (наши организации)
+
+
+@router.post("/import/save-batch")
+def save_batch_imported_orgs(data: BatchImportOrgsRequest, db: Session = Depends(get_db)):
+    """
+    Пакетное сохранение распознанных ИИ организаций:
+    в реестр Объектов (по умолчанию) или в Организации-исполнители.
+    """
+    created = []
+    skipped = 0
+    target = data.importAs or "objects"
+
+    for it in data.items:
+        name = (it.get("name") or "").strip()
+        if not name:
+            skipped += 1
+            continue
+
+        if target == "companies":
+            # Импорт как организация-исполнитель
+            inn = "".join(ch for ch in str(it.get("inn") or "") if ch.isdigit())
+            existing = db.query(Company).filter(Company.inn == inn).first() if inn else None
+            if not existing:
+                existing = db.query(Company).filter(Company.name == name).first()
+            if existing:
+                skipped += 1
+                continue
+
+            c = Company(
+                id=f"COMP-{uuid.uuid4().hex[:8]}",
+                name=name,
+                inn=inn,
+                kpp=str(it.get("kpp") or ""),
+                ogrn=str(it.get("ogrn") or ""),
+                address=str(it.get("address") or ""),
+                phone=str(it.get("phone") or ""),
+                email=str(it.get("email") or ""),
+                director=str(it.get("contact_person") or ""),
+                is_default=False,
+            )
+            db.add(c)
+            created.append(name)
+        else:
+            # Импорт как объект защиты
+            obj_id = f"OBJ-{uuid.uuid4().hex[:8]}"
+            o = Object(
+                id=obj_id,
+                name=name,
+                address=str(it.get("address") or ""),
+                inn=str(it.get("inn") or ""),
+                contact_person=str(it.get("contact_person") or ""),
+                phone=str(it.get("phone") or ""),
+                email=str(it.get("email") or ""),
+                category=str(it.get("category") or "Здание"),
+                functional_hazard=str(it.get("functional_hazard") or "Ф3.1"),
+                fire_hazard_category=str(it.get("fire_hazard_category") or "В"),
+                construction_hazard="С0",
+                total_area=float(it.get("total_area") or 0.0),
+                floors=int(it.get("floors") or 1),
+                status="Активен",
+                notes=str(it.get("notes") or ""),
+            )
+            db.add(o)
+            created.append(name)
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "target": target,
+        "created_count": len(created),
+        "skipped_count": skipped,
+        "names": created,
+    }
+
