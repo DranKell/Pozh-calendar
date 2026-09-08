@@ -425,7 +425,7 @@ textarea.inp { resize:vertical; }
 
 /* AI ADVISOR BUTTON: ДВУХЦВЕТНЫЙ ИНДИКАТОР СТАТУСА (ЗЕЛЕНЫЙ = РАБОТАЕТ, ОРАНЖЕВЫЙ/ЖЕЛТЫЙ = РУЧНОЙ ВВОД) */
 .ai-header-btn {
-  display:inline-flex; align-items:center; gap:7px; margin-left:10px; padding:6px 13px;
+  display:inline-flex; align-items:center; gap:8px; margin-left:14px; margin-right:12px; padding:7px 14px;
   font-weight:600; font-size:12.5px; border-radius:10px; cursor:pointer;
   transition:all .2s cubic-bezier(0.34,1.56,0.64,1);
 }
@@ -592,7 +592,7 @@ textarea.inp { resize:vertical; }
 /* ---------- КНОПКИ ПОМОЩИ И ПОДСКАЗОК ---------- */
 .header-help-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 9px;
+  padding: 7px 14px; border-radius: 9px; margin-right: 14px;
   background: rgba(111,183,232,0.08); border: 1px solid rgba(111,183,232,0.3);
   color: var(--moon); font-weight: 600; font-size: 13px;
   cursor: pointer; transition: all .2s;
