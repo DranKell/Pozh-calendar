@@ -10,6 +10,16 @@ host = str(srv_cfg.get("host", "0.0.0.0"))
 port = int(srv_cfg.get("port", 9000))
 
 if __name__ == "__main__":
+    title_text = f"Календарь ТО · http://localhost:{port}"
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(f"{title_text} (Сервер работает)")
+    except Exception:
+        pass
+    import sys
+    sys.stdout.write(f"\x1b]2;{title_text} (Сервер работает)\x07")
+    sys.stdout.flush()
+
     print()
     print("  КАЛЕНДАРЬ ТО · умный календарь ТО")
     print("  ->  Локально: http://localhost:%d" % port)
