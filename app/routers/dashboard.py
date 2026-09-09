@@ -70,11 +70,36 @@ def overdue(limit: int = 8, db: Session = Depends(get_db)):
 
 @router.get("/reminders")
 def reminders(db: Session = Depends(get_db)):
-    """Напоминания о предстоящих работах: за 7 дней (если выпадает на сб/вс — перенос на пятницу)."""
+    """
+    Напоминания о предстоящих регламентных работах:
+    Интервалы из msg.cfg [triggers] (10, 7, 3, 1 дней до даты).
+    С переносом даты напоминания на пятницу при попадании на выходные.
+    Каждое напоминание снабжается емким инспекционным сообщением от активного ИИ (YandexGPT/GigaChat) или эксперта 123-ФЗ.
+    """
+    import configparser
+    from pathlib import Path
     from datetime import timedelta
+    from app.services.ai_service import generate_inspector_reminder_text, load_ai_config
+
     today = date.today()
-    # Ищем предстоящие работы в горизонте до 14 дней
-    horizon_end = today + timedelta(days=14)
+    msg_cfg_path = Path(__file__).parent.parent.parent / "msg.cfg"
+    trigger_days = [10, 7, 3, 1]
+
+    if msg_cfg_path.exists():
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(str(msg_cfg_path), encoding="utf-8")
+            if cfg.has_section("triggers") and "remind_days_before" in cfg["triggers"]:
+                raw = cfg["triggers"]["remind_days_before"]
+                parsed = [int(x.strip()) for x in raw.split(",") if x.strip().isdigit()]
+                if parsed:
+                    trigger_days = sorted(parsed, reverse=True)
+        except Exception:
+            pass
+
+    max_horizon_days = max(trigger_days) if trigger_days else 14
+    horizon_end = today + timedelta(days=max_horizon_days + 3)
+
     items = (
         db.query(Execution)
         .join(Assignment, Assignment.id == Execution.assignment_id)
@@ -90,24 +115,41 @@ def reminders(db: Session = Depends(get_db)):
         .all()
     )
 
+    ai_cfg = load_ai_config()
     alert_items = []
-    for e in items:
-        # Дата напоминания: за 7 дней до планового выполнения
-        remind_dt = e.planned_date - timedelta(days=7)
-        # Если дата напоминания выпадает на сб (weekday=5) -> перенос на пт (-1 день)
-        if remind_dt.weekday() == 5:
-            remind_dt -= timedelta(days=1)
-        # Если на вс (weekday=6) -> перенос на пт (-2 дня)
-        elif remind_dt.weekday() == 6:
-            remind_dt -= timedelta(days=2)
 
-        # Если дата напоминания уже наступила (сегодня или ранее), но работа ещё в будущем
-        if remind_dt <= today and e.planned_date >= today:
+    for e in items:
+        days_until_planned = (e.planned_date - today).days
+
+        # Проверяем каждое пороговое правило (например 10, 7, 3, 1)
+        # Если хотя бы для одного порога наступила дата напоминания с учетом переноса выходных
+        should_alert = False
+        matched_remind_dt = e.planned_date
+        matched_trigger_step = 0
+
+        for interval in trigger_days:
+            remind_dt = e.planned_date - timedelta(days=interval)
+            # Перенос с выходных на пятницу
+            if remind_dt.weekday() == 5:
+                remind_dt -= timedelta(days=1)
+            elif remind_dt.weekday() == 6:
+                remind_dt -= timedelta(days=2)
+
+            if remind_dt <= today and e.planned_date >= today:
+                should_alert = True
+                matched_remind_dt = remind_dt
+                matched_trigger_step = interval
+                break
+
+        if should_alert:
             d_dict = exec_dict(e, db)
-            days_left = (e.planned_date - today).days
-            d_dict["RemindDate"] = remind_dt.isoformat()
-            d_dict["DaysLeft"] = days_left
+            d_dict["RemindDate"] = matched_remind_dt.isoformat()
+            d_dict["DaysLeft"] = days_until_planned
+            d_dict["TriggerStep"] = matched_trigger_step
+            # Генерируем живое инспекционное предупреждение (YandexGPT / GigaChat / 123-ФЗ)
+            d_dict["InspectorMessage"] = generate_inspector_reminder_text(d_dict, days_until_planned, ai_cfg)
             alert_items.append(d_dict)
 
     return {"ok": True, "data": alert_items}
+
 

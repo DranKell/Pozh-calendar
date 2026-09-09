@@ -2012,9 +2012,10 @@ async function loadReminders() {
               </div>
             </div>
             <div class="bell-item-work">${esc(item.WorkCode)} · ${esc(item.WorkName)}</div>
+            ${item.InspectorMessage ? `<div class="bell-item-inspector">🛡️ <i>${esc(item.InspectorMessage)}</i></div>` : ""}
             <div class="bell-item-date">
               <span>📅 План: <b>${fmtDate(item.PlannedDate)}</b></span>
-              <span>🔔 Напоминание с ${fmtDate(item.RemindDate)}</span>
+              <span>🔔 С ${fmtDate(item.RemindDate)}</span>
             </div>
           </div>
         `).join("");

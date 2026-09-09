@@ -15,34 +15,6 @@ logger = logging.getLogger("ai_service")
 MSG_CFG_PATH = Path(__file__).parent.parent.parent / "msg.cfg"
 
 
-def load_ai_config() -> Dict[str, Any]:
-    """Загрузка секции [ai_assistant] из msg.cfg"""
-    cfg = configparser.ConfigParser()
-    if MSG_CFG_PATH.exists():
-        try:
-            cfg.read(str(MSG_CFG_PATH), encoding="utf-8")
-        except Exception as e:
-            logger.error("Ошибка чтения msg.cfg: %s", e)
-    
-    section = cfg["ai_assistant"] if cfg.has_section("ai_assistant") else {}
-    return {
-        "enabled": section.getboolean("enabled", fallback=True),
-        "provider": section.get("provider", "auto").strip().lower(),
-        "api_url": section.get("api_url", "https://api.deepseek.com/v1").strip().rstrip("/"),
-        "api_key": section.get("api_key", "").strip(),
-        "model": section.get("model", "deepseek-chat").strip(),
-        "folder_id": section.get("folder_id", "").strip(),
-        "scope": section.get("scope", "GIGACHAT_API_PERS").strip(),
-        "temperature": section.getfloat("temperature", fallback=0.2),
-        "request_timeout_seconds": section.getint("request_timeout_seconds", fallback=20),
-        "fallback_to_rules": section.getboolean("fallback_to_rules", fallback=True),
-        "system_prompt": section.get(
-            "system_prompt",
-            "Ты — ведущий эксперт по пожарной безопасности объектов в РФ (123-ФЗ, СП 484, СП 486)."
-        ).strip(),
-    }
-
-
 # Кэш OAuth токена для Сбер GigaChat (живёт 30 минут)
 _GIGACHAT_TOKEN_CACHE: Dict[str, Any] = {
     "token": None,
@@ -58,7 +30,7 @@ _LLM_HEALTH_CACHE: Dict[str, Any] = {
 
 
 def load_ai_config() -> Dict[str, Any]:
-    """Загрузка настроек ИИ из msg.cfg с поддержкой нескольких провайдеров"""
+    """Загрузка настроек ИИ из msg.cfg с поддержкой схемы 'или-или' (YandexGPT / GigaChat)"""
     cfg = configparser.ConfigParser()
     if MSG_CFG_PATH.exists():
         try:
@@ -69,12 +41,16 @@ def load_ai_config() -> Dict[str, Any]:
     section = cfg["ai_assistant"] if cfg.has_section("ai_assistant") else {}
     providers_str = section.get("providers", "").strip()
     if not providers_str:
-        p = section.get("provider", "auto").strip().lower()
-        providers_list = [p] if p else ["auto"]
+        p = section.get("provider", "yandexgpt").strip().lower()
+        providers_list = [p] if p else ["yandexgpt", "gigachat"]
     else:
-        providers_list = [p.strip().lower() for p in providers_str.split(",") if p.strip()]
+        providers_list = [p.strip().lower() for p in providers_str.split(",") if p.strip() and p.strip().lower() != "deepseek"]
 
-    # Собираем конфигурации для каждого поддерживаемого провайдера
+    # Если список пуст или содержал только неподдерживаемые значения
+    if not providers_list:
+        providers_list = ["yandexgpt", "gigachat"]
+
+    # Собираем конфигурации для каждого поддерживаемого провайдера (yandexgpt, gigachat)
     def get_prov_cfg(p_name: str, sec_prefix: str = "") -> Dict[str, Any]:
         sec = cfg[sec_prefix] if sec_prefix and cfg.has_section(sec_prefix) else section
         return {
@@ -93,32 +69,30 @@ def load_ai_config() -> Dict[str, Any]:
         if not c["api_url"]:
             if p == "gigachat":
                 c["api_url"] = "https://gigachat.devices.sberbank.ru/api/v1"
-                if not c["model"]: c["model"] = "GigaChat-Pro"
+                if not c["model"]: c["model"] = "GigaChat"
             elif p == "yandexgpt":
                 c["api_url"] = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
                 if not c["model"]: c["model"] = "yandexgpt/latest"
-            elif p == "deepseek":
-                c["api_url"] = "https://api.deepseek.com/v1"
-                if not c["model"]: c["model"] = "deepseek-chat"
         provider_configs.append(c)
 
+    first_prov = provider_configs[0] if provider_configs else {}
     # Дефолтная активная секция
     return {
         "enabled": section.getboolean("enabled", fallback=True),
-        "provider": providers_list[0] if providers_list else "auto",
+        "provider": providers_list[0] if providers_list else "yandexgpt",
         "providers_chain": providers_list,
         "provider_configs": provider_configs,
-        "api_url": section.get("api_url", "https://api.deepseek.com/v1").strip().rstrip("/"),
-        "api_key": section.get("api_key", "").strip(),
-        "model": section.get("model", "deepseek-chat").strip(),
-        "folder_id": section.get("folder_id", "").strip(),
-        "scope": section.get("scope", "GIGACHAT_API_PERS").strip(),
+        "api_url": first_prov.get("api_url", "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"),
+        "api_key": first_prov.get("api_key", ""),
+        "model": first_prov.get("model", "yandexgpt/latest"),
+        "folder_id": first_prov.get("folder_id", ""),
+        "scope": first_prov.get("scope", "GIGACHAT_API_PERS"),
         "temperature": section.getfloat("temperature", fallback=0.2),
         "request_timeout_seconds": section.getint("request_timeout_seconds", fallback=20),
         "fallback_to_rules": section.getboolean("fallback_to_rules", fallback=True),
         "system_prompt": section.get(
             "system_prompt",
-            "Ты — ведущий эксперт по пожарной безопасности объектов в РФ (123-ФЗ, СП 484, СП 486)."
+            "Ты — ведущий инспектор по пожарному надзору и эксперт по нормам ПБ (123-ФЗ, СП 484, СП 486, ППР 1479)."
         ).strip(),
     }
 
@@ -166,15 +140,9 @@ def get_provider_display_name(provider: str, model: str = "") -> str:
     m = (model or "").lower().strip()
 
     if p == "yandexgpt" or "yandex" in m or "yagpt" in m:
-        return "YaGPT"
+        return "YandexGPT"
     if p == "gigachat" or "gigachat" in m:
         return "GigaChat"
-    if p == "deepseek" or "deepseek" in m:
-        return "DeepSeek"
-    if p == "proxyapi" or "proxyapi" in p:
-        return "ProxyAPI"
-    if p == "local_ollama" or "ollama" in p:
-        return "Ollama"
     if p == "expert_rules":
         return "123-ФЗ"
     
@@ -188,7 +156,7 @@ def get_provider_display_name(provider: str, model: str = "") -> str:
         return "Llama"
     if model:
         return model.split("/")[-1].split(":")[0]
-    return "LLM"
+    return "YandexGPT"
 
 
 def _ping_single_provider(p_cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,7 +238,7 @@ def _ping_single_provider(p_cfg: Dict[str, Any]) -> Dict[str, Any]:
             "Authorization": f"Bearer {api_key}",
         }
         ping_payload = {
-            "model": model or "deepseek-chat",
+            "model": model or "yandexgpt/latest",
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ping"}],
         }
@@ -580,9 +548,9 @@ def call_llm_advisor(
         return None
 
     import ssl
-    provider = ai_cfg.get("provider", "auto").lower()
-    model = ai_cfg.get("model", "deepseek-chat")
-    api_url = ai_cfg.get("api_url", "https://api.openai.com/v1")
+    provider = ai_cfg.get("provider", "yandexgpt").lower()
+    model = ai_cfg.get("model", "yandexgpt/latest")
+    api_url = ai_cfg.get("api_url", "https://llm.api.cloud.yandex.net/foundationModels/v1/completion")
 
     works_str = "\n".join(
         [f"- [{w['code']}] {w['name']} ({w.get('frequency', '')}, {w.get('price', 0)} руб.)" for w in catalog_works]
@@ -961,11 +929,11 @@ def answer_assistant_question(question: str, context_page: str = "", ai_cfg: Opt
             )
         },
         {
-            "keys": ["ии", "нейросеть", "api", "gigachat", "yandex", "deepseek", "123-фз"],
+            "keys": ["ии", "нейросеть", "api", "gigachat", "yandex", "123-фз"],
             "answer": (
                 "🤖 **Как работает ИИ в системе:**\n\n"
-                "• **Онлайн-режим (зелёный индикатор)**: Если в `msg.cfg` указан ключ GigaChat, YandexGPT или DeepSeek, система использует нейросеть для интеллектуального аудита и анализа проектов.\n"
-                "• **Автономный режим (янтарный индикатор)**: Если ключа нет, система работает на **встроенной экспертной нормативной базе 123-ФЗ, СП 484, СП 486 и ППР № 1479**, гарантируя 100% точность требований пожарной безопасности даже без интернета!"
+                "• **Онлайн-режим (зелёный индикатор)**: Если в `msg.cfg` указан ключ YandexGPT или GigaChat, система использует нейросеть для интеллектуального аудита, инспекционных напоминаний и распознавания контрагентов.\n"
+                "• **Автономный режим (янтарный индикатор)**: Если ключа нет или сеть недоступна, система автоматически работает на **встроенной экспертной нормативной базе 123-ФЗ, СП 484, СП 486 и ППР № 1479**, гарантируя 100% точность требований пожарной безопасности даже без интернета!"
             )
         }
     ]
@@ -991,43 +959,67 @@ def answer_assistant_question(question: str, context_page: str = "", ai_cfg: Opt
 def ai_parse_organizations(raw_text: str) -> Dict[str, Any]:
     """
     Интеллектуальное распознавание списка организаций/объектов из текста:
-    1. Попытка распознать через активный LLM (GigaChat, YandexGPT, DeepSeek).
-    2. Если LLM недоступен или вернул сбой — экспертный локальный regex-парсер реквизитов.
-    3. Автоматическая группировка/сортировка по названию организации.
+    1. Полноценный обход провайдеров LLM по схеме «ИЛИ-ИЛИ» (YandexGPT -> GigaChat).
+       Если один не настроен, выдает ошибку ключа или недоступен — мгновенно пробуется другой.
+    2. Если недоступны оба провайдера — экспертный локальный regex-парсер реквизитов.
+    3. Защита от галлюцинаций: фильтрация любых фиктивных заглушек.
+    4. Автоматическая группировка/сортировка по названию организации.
     """
     if not raw_text or not raw_text.strip():
         return {"ok": False, "error": "Текст для распознавания пуст", "items": []}
 
     cfg = load_ai_config()
-    health = verify_llm_connection(cfg, force_check=False)
+    provider_configs = cfg.get("provider_configs", [])
+    if not provider_configs:
+        provider_configs = [cfg]
 
     parsed_items: List[Dict[str, Any]] = []
     source_name = "Встроенный парсер реквизитов"
 
-    # 1. Попытка через подключенный LLM
-    if health.get("is_online") and health.get("active_config"):
-        p_cfg = health["active_config"]
-        llm_result = _call_llm_parse_orgs(p_cfg, raw_text[:12000])
-        if llm_result and isinstance(llm_result, list) and len(llm_result) > 0:
-            parsed_items = llm_result
-            source_name = f"Нейросеть {health.get('display_name', 'LLM')}"
+    # 1. Полноценный перебор провайдеров по схеме failover «ИЛИ-ИЛИ» (YandexGPT / GigaChat)
+    if cfg.get("enabled", True):
+        for p_cfg in provider_configs:
+            prov_name = p_cfg.get("provider", "").lower()
+            if prov_name not in ("yandexgpt", "gigachat") and "yandex" not in prov_name and "gigachat" not in prov_name:
+                continue
+            if not p_cfg.get("api_key"):
+                continue
 
-    # 2. Fallback: экспертный локальный парсер
+            llm_result = _call_llm_parse_orgs(p_cfg, raw_text[:12000])
+            if llm_result and isinstance(llm_result, list) and len(llm_result) > 0:
+                # Проверяем, что результат содержит реальные распознанные данные
+                parsed_items = llm_result
+                display_prov = get_provider_display_name(prov_name, p_cfg.get("model", ""))
+                source_name = f"Нейросеть {display_prov}"
+                break
+
+    # 2. Fallback: экспертный локальный парсер (123-ФЗ)
     if not parsed_items:
         parsed_items = _rule_based_parse_orgs(raw_text)
 
-    # 3. Нормализация и сортировка по названию
+    # 3. Нормализация, очистка от тестовых заглушек и сортировка по названию
     cleaned_items = []
+    forbidden_names = {"ооо ромашка", "ромашка", "ооо организация", "организация", "пример"}
+    forbidden_inns = {"7701234567", "0000000000", "1234567890"}
+
     for item in parsed_items:
         name = str(item.get("name") or "").strip()
         if not name:
             continue
+
         inn = str(item.get("inn") or "").strip()
         inn = "".join(ch for ch in inn if ch.isdigit())
         kpp = str(item.get("kpp") or "").strip()
         kpp = "".join(ch for ch in kpp if ch.isdigit())
         ogrn = str(item.get("ogrn") or "").strip()
         ogrn = "".join(ch for ch in ogrn if ch.isdigit())
+
+        # Жесткая защита от любых заглушек
+        name_clean = name.lower().replace('"', '').replace('«', '').replace('»', '').strip()
+        if any(fn in name_clean for fn in ["ромашка", "пример организации", "тестовая организация"]):
+            continue
+        if name_clean in forbidden_names and (not inn or inn in forbidden_inns):
+            continue
 
         # ФПО
         fpo = str(item.get("functional_hazard") or "Ф3.1").strip().upper()
@@ -1063,7 +1055,7 @@ def ai_parse_organizations(raw_text: str) -> Dict[str, Any]:
 
 
 def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[List[Dict[str, Any]]]:
-    """Запрос в нейросеть для структурирования организаций"""
+    """Запрос в нейросеть (YandexGPT или GigaChat) для структурирования организаций"""
     api_key = p_cfg.get("api_key")
     if not api_key:
         return None
@@ -1071,47 +1063,36 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
     import ssl
     provider = p_cfg.get("provider", "auto").lower()
     model = p_cfg.get("model", "")
-    api_url = p_cfg.get("api_url", "https://api.deepseek.com/v1")
+    api_url = p_cfg.get("api_url", "")
 
     prompt = f"""
-Извлеки из следующего текста список всех найденных организаций, контрагентов или обслуживаемых объектов недвижимости.
-Для каждой организации определи доступные поля:
-- name: точное наименование (ООО, ПАО, ИП, наименование ТЦ, школы и т.д.)
+Ты — специализированный ИИ-парсер реквизитов и контрагентов.
+Внимательно проанализируй следующий текст и извлеки из него ВСЕ найденные организации, контрагенты, учреждения или обслуживаемые объекты недвижимости.
+
+Категорически запрещено выдумывать или генерировать несуществующие организации (никаких «ООО Ромашка» или тестовых данных)!
+Извлекай ТОЛЬКО те сущности и реквизиты, которые реально присутствуют в исходном тексте.
+Если в тексте нет организаций, верни {{"organizations": []}}.
+
+Для каждой найденной в тексте организации заполни поля:
+- name: точное наименование из текста (ООО, ПАО, ИП, наименование ТЦ, школы, завода и т.д.)
 - inn: ИНН (строка цифр)
-- kpp: КПП (строка цифр, если есть)
-- ogrn: ОГРН / ОГРНИП (строка цифр, если есть)
+- kpp: КПП (строка цифр, если есть в тексте)
+- ogrn: ОГРН / ОГРНИП (строка цифр, если есть в тексте)
 - address: фактический или юридический адрес
 - phone: контактный телефон
 - email: контактный email
-- contact_person: контактное лицо или директор
+- contact_person: контактное лицо, директор или представитель
 - category: категория (Офис, Склад, Торговый центр, Школа, Производство, Больница, Здание)
 - functional_hazard: класс функциональной пожарной опасности по 123-ФЗ (Ф1.1, Ф1.2, Ф1.3, Ф2.1, Ф3.1, Ф3.2, Ф4.3, Ф5.1, Ф5.2 и т.д., по умолчанию Ф3.1)
 - fire_hazard_category: категория взрывопожароопасности (А, Б, В, Г, Д, Не категорируется, по умолчанию В)
-- total_area: общая площадь в м² (число float, если указана)
-- floors: этажность (число int, если указана)
+- total_area: общая площадь в м² (число float, если указана в тексте)
+- floors: этажность (число int, если указана в тексте)
 - notes: любые дополнительные примечания
 
-Верни СТРОГО JSON следующего формата без лишнего текста:
-{{
-  "organizations": [
-    {{
-      "name": "ООО Ромашка",
-      "inn": "7701234567",
-      "address": "г. Москва, ул. Ленина, д. 1",
-      "contact_person": "Иванов И.И.",
-      "phone": "+7 999 123-45-67",
-      "email": "info@romashka.ru",
-      "category": "Офис",
-      "functional_hazard": "Ф4.3",
-      "fire_hazard_category": "В",
-      "total_area": 1200.0,
-      "floors": 3,
-      "notes": ""
-    }}
-  ]
-}}
+Ответ должен быть СТРОГО в формате JSON без markdown-разметки:
+{{"organizations": [{{"name": "...", "inn": "...", "address": "...", "category": "...", "functional_hazard": "..."}}]}}
 
-Текст документа:
+Текст для извлечения данных:
 \"\"\"
 {text_slice}
 \"\"\"
@@ -1123,7 +1104,8 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
     try:
         if is_gigachat:
             token = get_gigachat_token(api_key, p_cfg.get("scope", "GIGACHAT_API_PERS"))
-            if not token: return None
+            if not token:
+                return None
             endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
             payload = {
@@ -1139,7 +1121,8 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
             folder_id = p_cfg.get("folder_id", "").strip()
             auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
             headers = {"Content-Type": "application/json", "Authorization": auth_header}
-            if folder_id: headers["x-folder-id"] = folder_id
+            if folder_id:
+                headers["x-folder-id"] = folder_id
             yandex_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
             payload = {
                 "modelUri": yandex_model,
@@ -1147,19 +1130,13 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
                 "messages": [{"role": "user", "text": prompt}],
             }
         else:
-            endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-            payload = {
-                "model": model or "deepseek-chat",
-                "temperature": 0.1,
-                "messages": [{"role": "user", "content": prompt}],
-                "response_format": {"type": "json_object"},
-            }
+            return None
 
         req_data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(endpoint, data=req_data, headers=headers, method="POST")
         urlopen_kwargs = {"timeout": 30}
-        if ssl_ctx: urlopen_kwargs["context"] = ssl_ctx
+        if ssl_ctx:
+            urlopen_kwargs["context"] = ssl_ctx
 
         with urllib.request.urlopen(req, **urlopen_kwargs) as resp:
             body = resp.read().decode("utf-8")
@@ -1169,7 +1146,7 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
             elif is_gigachat:
                 txt = res_json["choices"][0]["message"]["content"]
             else:
-                txt = res_json["choices"][0]["message"]["content"]
+                txt = ""
 
             txt = txt.strip()
             if "```json" in txt:
@@ -1183,7 +1160,7 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
             elif isinstance(parsed, list):
                 return parsed
     except Exception as e:
-        logger.warning("Ошибка вызова LLM для парсинга организаций: %s", e)
+        logger.warning("Ошибка вызова LLM (%s) для парсинга организаций: %s", provider, e)
     return None
 
 
@@ -1331,5 +1308,130 @@ def _rule_based_parse_orgs(text: str) -> List[Dict[str, Any]]:
                 })
 
     return results
+
+
+# Кэш текстов инспектора, чтобы не вызывать LLM повторно для одного и того же выполнения в течение дня
+_INSPECTOR_ALERT_CACHE: Dict[str, Any] = {}
+
+
+def generate_inspector_reminder_text(exec_info: Dict[str, Any], days_left: int, ai_cfg: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Формирование краткого, авторитетного напоминания о предстоящем ТО в стиле инспектора по пожарной безопасности.
+    Сгенерировано с помощью активной нейросети (YandexGPT / GigaChat) или экспертной базы при офлайне.
+    Длина: 1-2 предложения, строго, четко и по делу.
+    """
+    exec_id = str(exec_info.get("ID") or "")
+    cache_key = f"{exec_id}:{days_left}"
+    if cache_key in _INSPECTOR_ALERT_CACHE:
+        return _INSPECTOR_ALERT_CACHE[cache_key]
+
+    obj_name = exec_info.get("ObjectName") or "Объект защиты"
+    work_name = exec_info.get("WorkName") or "Регламентное ТО СПЗ"
+    work_code = exec_info.get("WorkCode") or "ПБ"
+    planned_date = exec_info.get("PlannedDate") or "в ближайшее время"
+
+    # Дни текстом
+    if days_left == 1:
+        days_str = "1 день (ЗАВТРА)"
+    elif days_left == 0:
+        days_str = "СЕГОДНЯ"
+    elif days_left in (2, 3, 4):
+        days_str = f"{days_left} дня"
+    else:
+        days_str = f"{days_left} дней"
+
+    ai_cfg = ai_cfg or load_ai_config()
+    health = verify_llm_connection(ai_cfg, force_check=False)
+
+    inspector_text = ""
+
+    if health.get("is_online") and ai_cfg.get("enabled", True):
+        p_cfg = health.get("active_config", ai_cfg)
+        merged_cfg = {**ai_cfg, **p_cfg}
+        api_key = merged_cfg.get("api_key")
+        provider = merged_cfg.get("provider", "").lower()
+        model = merged_cfg.get("model", "")
+        api_url = merged_cfg.get("api_url", "")
+
+        is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
+        is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
+
+        prompt = f"""
+Ты — строгий государственный инспектор пожарного надзора.
+Сформируй ОДНО-ДВА коротких, авторитетных и емких предложения напоминания о приближающейся плановой проверке / регламентном техобслуживании:
+- Объект: {obj_name}
+- Регламент: {work_code} ({work_name})
+- До срока выполнения: {days_str} (дата: {planned_date})
+
+Требования:
+- Стиль: строгий инспектор по пожарной безопасности, предупреждающий об ответственности за непроведение ТО и необходимость заполнения журнала эксплуатации.
+- Никакой воды, шаблонных вежливых вступлений («Уважаемые господа» и т.п.).
+- Максимум 25-35 слов!
+- Начни сразу с сути или предупреждения.
+"""
+        try:
+            if is_gigachat:
+                token = get_gigachat_token(api_key, merged_cfg.get("scope", "GIGACHAT_API_PERS"))
+                if token:
+                    endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+                    payload = {
+                        "model": model or "GigaChat",
+                        "temperature": 0.2,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                    import ssl
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                    with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+                        body = json.loads(resp.read().decode("utf-8"))
+                        inspector_text = body["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+            elif is_yandex:
+                folder_id = merged_cfg.get("folder_id", "").strip()
+                auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
+                headers = {"Content-Type": "application/json", "Authorization": auth_header}
+                if folder_id:
+                    headers["x-folder-id"] = folder_id
+                y_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
+                payload = {
+                    "modelUri": y_model,
+                    "completionOptions": {"stream": False, "temperature": 0.2, "maxTokens": 150},
+                    "messages": [{"role": "user", "text": prompt}],
+                }
+                req = urllib.request.Request(api_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    inspector_text = body["result"]["alternatives"][0]["message"]["text"].strip().strip('"').strip("'")
+        except Exception as e:
+            logger.warning("Ошибка генерации текста инспектора через LLM: %s", e)
+
+    # Офлайн-шаблоны эксперта 123-ФЗ/ППР 1479 при отсутствии внешнего API
+    if not inspector_text:
+        if days_left <= 1:
+            inspector_text = (
+                f"⚠️ Срочный контроль: до регламента «{work_code}» на объекте «{obj_name}» остался {days_str}! "
+                f"Обеспечьте беспрепятственный допуск лицензированной бригады и внесение записи в журнал эксплуатации систем противопожарной защиты (п. 54 ППР № 1479)."
+            )
+        elif days_left <= 3:
+            inspector_text = (
+                f"Внимание: до планового выполнения {work_name} ({obj_name}) осталось {days_str}. "
+                f"Подготовьте исполнительную документацию и проверьте готовность дежурного персонала по ст. 83 123-ФЗ."
+            )
+        elif days_left <= 7:
+            inspector_text = (
+                f"Плановое ТО: через {days_str} на объекте «{obj_name}» наступает срок регламента {work_code}. "
+                f"Согласуйте время выезда специалистов во избежание предписаний Госпожнадзора."
+            )
+        else:
+            inspector_text = (
+                f"Предварительное информирование: через {days_str} ({planned_date}) запланирован регламент {work_name} на объекте «{obj_name}». "
+                f"Проверьте актуальность договора и графиков ТО по СП 484.1311500."
+            )
+
+    _INSPECTOR_ALERT_CACHE[cache_key] = inspector_text
+    return inspector_text
+
 
 

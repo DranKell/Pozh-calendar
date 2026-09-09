@@ -68,8 +68,8 @@ def get_status_config(check: bool = True):
     cfg = load_ai_config()
     enabled = cfg.get("enabled", True)
     has_key = bool(cfg.get("api_key"))
-    provider = cfg.get("provider", "auto")
-    model = cfg.get("model", "deepseek-chat")
+    provider = cfg.get("provider", "yandexgpt")
+    model = cfg.get("model", "yandexgpt/latest")
     display_provider = get_provider_display_name(provider, model)
 
     health = verify_llm_connection(cfg, force_check=False)
