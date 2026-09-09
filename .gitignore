@@ -49,3 +49,8 @@ tmp/
 *.zip
 *.tar.gz
 *.bak
+
+# Sensitive config files (use msg.cfg.example as template)
+msg.cfg
+!msg.cfg.example
+
