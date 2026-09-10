@@ -2807,14 +2807,33 @@ function renderImportModal() {
   const isObj = importModalState.target === "objects";
   const hasResults = importModalState.parsedItems.length > 0;
 
+  const modalTitle = isObj
+    ? "📥 Импорт объектов обслуживания и контрагентов (Клиенты)"
+    : "🏛 Импорт организаций-исполнителей и реквизитов (Счета)";
+  const modalSub = isObj
+    ? "Загрузите список обслуживаемых площадок, зданий или контрагентов — ИИ определит адреса, площади, этажность и классы пожарной опасности (123-ФЗ)"
+    : "Загрузите карточку или список ваших юридических лиц / ИП — система извлечет банковские реквизиты (БИК, р/с, к/с), ИНН, КПП, ОГРН, адреса и ФИО руководства";
+
+  const placeholderText = isObj
+    ? `Пример:
+1. ООО «СтройТех», ИНН 7701234567, г. Москва, ул. Ленина, д. 5, оф. 10 (Офисный центр, Ф4.3)
+2. ТЦ «Галерея», г. Пермь, Комсомольский пр-кт, 15, площадь 4500 м2, 3 этажа
+3. ИП Сидоров А.В. (Склад запчастей, Категория В, Ф5.2)...`
+    : `Вставьте реквизиты организации:
+ООО «Компания»
+ИНН: 5921029563, КПП: 592101001, ОГРН: 1125921000886
+Юр. адрес: г. Пермь, ул. Ленина, 10
+Банк: ПАО Сбербанк, БИК: 042202603, Р/с: 40702810749230090494
+Генеральный директор: Иванов И.И.`;
+
   c.innerHTML = `
     <div class="modal-header">
       <div>
         <div class="modal-title" style="display:flex;align-items:center;gap:8px;">
-          <span>📥</span> Интеллектуальный импорт организаций через ИИ
+          <span>${isObj ? '⌂' : '🏛'}</span> ${modalTitle}
         </div>
         <div style="font-size:12px;color:var(--text-3);margin-top:2px;">
-          Вставьте список текстом или прикрепите документ Word, Excel, PDF — ИИ извлечет реквизиты и отсортирует по организациям
+          ${modalSub}
         </div>
       </div>
       <button class="btn-close" id="btnImportClose" title="Закрыть">✕</button>
@@ -2823,13 +2842,13 @@ function renderImportModal() {
     <div class="modal-body" style="padding-top:14px;">
       <!-- ВЫБОР ЦЕЛЕВОГО РЕЕСТРА -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--panel-2);padding:10px 14px;border-radius:10px;border:1px solid var(--line);margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:600;color:var(--text);">Куда импортировать данные:</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text);">Целевой раздел:</div>
         <div style="display:flex;gap:8px;">
           <button type="button" class="btn btn-sm ${isObj ? 'btn-amber' : 'btn-ghost'}" id="btnTargetObjects">
-            ⌂ В Объекты защиты (клиенты)
+            ⌂ В раздел «Объекты» (клиенты)
           </button>
           <button type="button" class="btn btn-sm ${!isObj ? 'btn-amber' : 'btn-ghost'}" id="btnTargetCompanies">
-            🏛 В Наши организации (счета)
+            🏛 В раздел «Счета» (наши предприятия)
           </button>
         </div>
       </div>
@@ -2837,10 +2856,10 @@ function renderImportModal() {
       <!-- ВКЛАДКИ ИСТОЧНИКА: ТЕКСТ / ФАЙЛ -->
       <div class="help-tabs" style="margin-bottom:14px;">
         <button class="help-tab-btn ${importModalState.tab === 'text' ? 'active' : ''}" id="tabImportText">
-          📝 Вставка списком (текст)
+          📝 Вставка списком / реквизитами (текст)
         </button>
         <button class="help-tab-btn ${importModalState.tab === 'file' ? 'active' : ''}" id="tabImportFile">
-          📎 Прикрепить файл (Word / Excel / PDF)
+          📎 Загрузить файл (Word / Excel / PDF)
         </button>
       </div>
 
@@ -2848,18 +2867,15 @@ function renderImportModal() {
       <div id="importTabText" class="${importModalState.tab === 'text' ? '' : 'hidden'}">
         <div class="field">
           <label style="display:flex;justify-content:space-between;">
-            <span>Вставьте текст, таблицу, список контрагентов или реквизитов:</span>
-            <span class="sub" style="font-weight:normal;">ИИ сам найдет названия, ИНН, адреса, площади и классы ФПО</span>
+            <span>${isObj ? 'Вставьте список объектов или контрагентов:' : 'Вставьте карточку сведений или реквизиты предприятия:'}</span>
+            <span class="sub" style="font-weight:normal;">${isObj ? 'ИИ сам рассчитает пожарную опасность (123-ФЗ)' : 'ИИ извлечет банковские счета, БИК, ИНН и КПП'}</span>
           </label>
-          <textarea class="inp" id="importRawText" rows="6" placeholder="Пример:
-1. ООО «СтройТех», ИНН 7701234567, г. Москва, ул. Ленина, д. 5, оф. 10 (Офисный центр, Ф4.3)
-2. ТЦ «Галерея», г. Пермь, Комсомольский пр-кт, 15, площадь 4500 м2, 3 этажа
-3. ИП Сидоров А.В. (Склад запчастей, Категория В, Ф5.2)..."></textarea>
+          <textarea class="inp" id="importRawText" rows="6" placeholder="${esc(placeholderText)}"></textarea>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
           <button class="btn btn-ghost" id="btnImportClearText">Очистить</button>
           <button class="btn btn-amber btn-action-primary" id="btnRunParseText" style="min-height:38px;padding:8px 20px;">
-            <span>🤖 Распознать и отсортировать через ИИ</span>
+            <span>🤖 Распознать через ИИ</span>
           </button>
         </div>
       </div>
@@ -2920,11 +2936,11 @@ function renderImportModal() {
               <tr>
                 <th style="width:36px;"><input type="checkbox" id="importCheckAll" checked title="Выбрать все"></th>
                 <th>№</th>
-                <th>Организация / Объект</th>
-                <th>ИНН</th>
-                <th>Адрес</th>
-                <th>${isObj ? 'ФПО / Кат.' : 'КПП / ОГРН'}</th>
-                <th>${isObj ? 'Площадь / Эт.' : 'Контакты'}</th>
+                <th>${isObj ? 'Организация / Объект' : 'Организация-исполнитель'}</th>
+                <th>ИНН / КПП</th>
+                <th>${isObj ? 'Адрес' : 'Банк и реквизиты'}</th>
+                <th>${isObj ? 'ФПО / Кат.' : 'ОГРН'}</th>
+                <th>${isObj ? 'Площадь / Эт.' : 'Руководство / Контакты'}</th>
               </tr>
             </thead>
             <tbody>
@@ -2934,23 +2950,43 @@ function renderImportModal() {
                   <td class="mono" style="color:var(--text-3);">${idx + 1}</td>
                   <td>
                     <b>${esc(item.name)}</b>
-                    ${item.category ? `<div class="sub">${esc(item.category)}</div>` : ''}
+                    ${isObj && item.category ? `<div class="sub">${esc(item.category)}</div>` : ''}
+                    ${!isObj && item.address ? `<div class="sub" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(item.address)}">📍 ${esc(item.address)}</div>` : ''}
                   </td>
-                  <td class="mono">${esc(item.inn || "—")}</td>
-                  <td><div style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(item.address)}">${esc(item.address || "—")}</div></td>
+                  <td class="mono">
+                    <div>${esc(item.inn || "—")}</div>
+                    ${item.kpp ? `<div class="sub" style="font-size:11px;">КПП ${esc(item.kpp)}</div>` : ''}
+                  </td>
+                  <td>
+                    ${isObj ? `
+                      <div style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(item.address)}">${esc(item.address || "—")}</div>
+                    ` : `
+                      <div style="max-width:260px;font-size:12px;">
+                        ${item.bank ? `<div><b>${esc(item.bank)}</b></div>` : ''}
+                        ${item.account ? `<div class="mono sub" style="font-size:11px;">р/с ${esc(item.account)}</div>` : ''}
+                        ${item.bik ? `<div class="mono sub" style="font-size:11px;">БИК ${esc(item.bik)}</div>` : ''}
+                        ${!item.bank && !item.account ? `<span style="color:var(--text-3);">—</span>` : ''}
+                      </div>
+                    `}
+                  </td>
                   <td>
                     ${isObj ? `
                       <span class="tag tag-fpo" style="font-size:11px;">${esc(item.functional_hazard || "Ф3.1")}</span>
                       <span class="tag tag-fire-cat" style="font-size:11px;margin-left:4px;">${esc(item.fire_hazard_category || "В")}</span>
                     ` : `
-                      <span class="mono" style="font-size:11px;">${esc(item.kpp || "—")}</span>
+                      <span class="mono" style="font-size:11px;">${esc(item.ogrn || "—")}</span>
                     `}
                   </td>
                   <td>
                     ${isObj ? `
                       <span class="mono" style="font-size:11px;">${item.total_area ? item.total_area + ' м²' : '—'} ${item.floors ? '· ' + item.floors + ' эт.' : ''}</span>
                     ` : `
-                      <span style="font-size:11px;">${esc(item.phone || item.email || "—")}</span>
+                      <div style="font-size:11.5px;">
+                        ${item.contact_person ? `<div>👤 ${esc(item.contact_person)}</div>` : ''}
+                        ${item.phone ? `<div class="sub">📞 ${esc(item.phone)}</div>` : ''}
+                        ${item.email ? `<div class="sub">✉ ${esc(item.email)}</div>` : ''}
+                        ${!item.contact_person && !item.phone && !item.email ? '<span class="sub">—</span>' : ''}
+                      </div>
                     `}
                   </td>
                 </tr>

@@ -1035,6 +1035,10 @@ def ai_parse_organizations(raw_text: str) -> Dict[str, Any]:
             "phone": str(item.get("phone") or "").strip(),
             "email": str(item.get("email") or "").strip(),
             "contact_person": str(item.get("contact_person") or item.get("director") or "").strip(),
+            "bank": str(item.get("bank") or "").strip(),
+            "bik": str(item.get("bik") or "").strip(),
+            "account": str(item.get("account") or "").strip(),
+            "corr_account": str(item.get("corr_account") or "").strip(),
             "category": str(item.get("category") or "Здание").strip(),
             "functional_hazard": fpo or "Ф3.1",
             "fire_hazard_category": str(item.get("fire_hazard_category") or "В").strip().upper() or "В",
@@ -1164,9 +1168,126 @@ def _call_llm_parse_orgs(p_cfg: Dict[str, Any], text_slice: str) -> Optional[Lis
     return None
 
 
+def _parse_single_card_org(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Распознает документ-карточку одной организации (таблицы вида «Ключ: Значение»,
+    «Карточка сведений о контрагенте / предприятии», «Реквизиты компании»).
+    """
+    import re
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    card: Dict[str, Any] = {}
+    found_keys = 0
+
+    inn_pattern = re.compile(r'\b(?:ИНН[:\s]*)?(\d{10}|\d{12})\b', re.IGNORECASE)
+    kpp_pattern = re.compile(r'\b(?:КПП[:\s]*)?(\d{9})\b', re.IGNORECASE)
+    ogrn_pattern = re.compile(r'\b(?:ОГРН(?:ИП)?[:\s]*)?(\d{13}|\d{15})\b', re.IGNORECASE)
+    bik_pattern = re.compile(r'\b(?:БИК[:\s]*)?(\d{9})\b', re.IGNORECASE)
+    acc_pattern = re.compile(r'\b(\d{20})\b')
+    phone_pattern = re.compile(r'(?:\+7|8)[\s\-\(]*\d{3}[\s\-\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}')
+    email_pattern = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')
+
+    for line in lines:
+        parts = [p.strip() for p in re.split(r'[\t|;]', line) if p.strip()]
+        if len(parts) >= 2:
+            key = parts[0]
+            val = " | ".join(parts[1:])
+            if key.isdigit() and len(parts) >= 3:
+                key = parts[1]
+                val = " | ".join(parts[2:])
+            key_l = key.lower()
+
+            if "краткое наименование" in key_l:
+                card["short_name"] = val
+                found_keys += 1
+            elif "полное наименование" in key_l:
+                card["full_name"] = val
+                found_keys += 1
+            elif "наименование" in key_l and "банка" not in key_l and "name" not in card:
+                card["name"] = val
+                found_keys += 1
+            elif "инн" in key_l:
+                m = inn_pattern.search(val)
+                if m:
+                    card["inn"] = m.group(1)
+                    found_keys += 1
+            elif "кпп" in key_l:
+                m = kpp_pattern.search(val)
+                if m:
+                    card["kpp"] = m.group(1)
+                    found_keys += 1
+            elif "огрн" in key_l:
+                m = ogrn_pattern.search(val)
+                if m:
+                    card["ogrn"] = m.group(1)
+                    found_keys += 1
+            elif "адрес" in key_l and ("юридическ" in key_l or "address" not in card):
+                card["address"] = val
+                found_keys += 1
+            elif any(r in key_l for r in ["руководител", "директор", "генеральный", "ф.и.о"]):
+                card["contact_person"] = val
+                found_keys += 1
+            elif any(c in key_l for c in ["телефон", "связ", "почт", "контакт"]):
+                em = email_pattern.search(val)
+                if em:
+                    card["email"] = em.group(0)
+                pm = phone_pattern.search(val)
+                if pm:
+                    card["phone"] = pm.group(0)
+                found_keys += 1
+            elif "банк" in key_l and ("наименование" in key_l or len(parts) >= 2):
+                card["bank"] = val
+            elif "бик" in key_l:
+                bm = bik_pattern.search(val)
+                if bm:
+                    card["bik"] = bm.group(1)
+            elif "расчетн" in key_l or "расчётн" in key_l:
+                am = acc_pattern.search(val)
+                if am:
+                    card["account"] = am.group(1)
+            elif "корреспондентск" in key_l or "к/с" in key_l:
+                cm = acc_pattern.search(val)
+                if cm:
+                    card["corr_account"] = cm.group(1)
+
+    # Карточка признается валидной, если найден хотя бы ИНН/ОГРН и наименование, либо 2+ ключевых атрибута
+    chosen_name = card.get("short_name") or card.get("name") or card.get("full_name")
+    if chosen_name and (card.get("inn") or card.get("ogrn") or found_keys >= 2):
+        # Очищаем имя от лишних префиксов и кавычек
+        cleaned_name = chosen_name.strip().strip("|").strip()
+        category_preset = get_preset_for_building_type(cleaned_name)
+        return {
+            "name": cleaned_name,
+            "inn": card.get("inn") or "",
+            "kpp": card.get("kpp") or "",
+            "ogrn": card.get("ogrn") or "",
+            "address": card.get("address") or "",
+            "phone": card.get("phone") or "",
+            "email": card.get("email") or "",
+            "contact_person": card.get("contact_person") or "",
+            "bank": card.get("bank") or "",
+            "bik": card.get("bik") or "",
+            "account": card.get("account") or "",
+            "corr_account": card.get("corr_account") or "",
+            "category": category_preset.get("category", "Здание"),
+            "functional_hazard": category_preset.get("functional_hazard", "Ф3.1"),
+            "fire_hazard_category": category_preset.get("fire_hazard_category", "В"),
+            "total_area": 0.0,
+            "floors": 1,
+            "notes": f"Банк: {card.get('bank', '')} Р/с: {card.get('account', '')} БИК: {card.get('bik', '')}".strip(),
+        }
+    return None
+
+
 def _rule_based_parse_orgs(text: str) -> List[Dict[str, Any]]:
     """Экспертный эвристический парсер реквизитов организаций (regex + паттерны РФ)"""
     import re
+
+    # 1. Сначала проверяем, не является ли весь документ единой карточкой организации
+    single_card = _parse_single_card_org(text)
+    if single_card:
+        return [single_card]
+
     results = []
 
     # Разделяем текст на блоки по строкам или разделителям
@@ -1207,7 +1328,7 @@ def _rule_based_parse_orgs(text: str) -> List[Dict[str, Any]]:
                 elif ("г." in p or "ул." in p or "обл." in p or "д." in p) and not addr_candidate:
                     addr_candidate = p
 
-            if len(name_candidate) >= 3 and not name_candidate.lower().startswith("наименов"):
+            if len(name_candidate) >= 3 and not name_candidate.lower().startswith(("наименов", "№")):
                 flush_current()
                 results.append({
                     "name": name_candidate,

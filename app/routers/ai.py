@@ -368,6 +368,9 @@ def save_batch_imported_orgs(data: BatchImportOrgsRequest, db: Session = Depends
                 skipped += 1
                 continue
 
+            has_default = db.query(Company).filter(Company.is_default == True).first()
+            is_def = (has_default is None)
+
             c = Company(
                 id=f"COMP-{uuid.uuid4().hex[:8]}",
                 name=name,
@@ -377,8 +380,15 @@ def save_batch_imported_orgs(data: BatchImportOrgsRequest, db: Session = Depends
                 address=str(it.get("address") or ""),
                 phone=str(it.get("phone") or ""),
                 email=str(it.get("email") or ""),
-                director=str(it.get("contact_person") or ""),
-                is_default=False,
+                bank=str(it.get("bank") or ""),
+                bik=str(it.get("bik") or ""),
+                account=str(it.get("account") or ""),
+                corr_account=str(it.get("corr_account") or ""),
+                director=str(it.get("contact_person") or it.get("director") or ""),
+                accountant=str(it.get("accountant") or ""),
+                invoice_prefix="СЧ",
+                vat_rate=0.0,
+                is_default=is_def,
             )
             db.add(c)
             created.append(name)
