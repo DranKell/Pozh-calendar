@@ -79,11 +79,11 @@ def test_notify(req: TestNotifyRequest):
     results = {}
 
     if req.channel in ("all", "max"):
-        results["max"] = send_max_message(test_text, recipient_id=req.customChatId)
+        results["max"] = send_max_message(test_text, recipient_id=req.customChatId, ignore_time_window=True)
 
     if req.channel in ("all", "email"):
         recipients = [req.customEmail] if req.customEmail else None
-        results["email"] = send_email_message(subject=subject, text_content=test_text, to_recipients=recipients)
+        results["email"] = send_email_message(subject=subject, text_content=test_text, to_recipients=recipients, ignore_time_window=True)
 
     return {"ok": True, "results": results}
 
@@ -96,6 +96,6 @@ def trigger_check_reminders():
     from app.db.session import SessionLocal
     from app.services.notifier import check_and_send_scheduled_reminders
 
-    res = check_and_send_scheduled_reminders(SessionLocal)
+    res = check_and_send_scheduled_reminders(SessionLocal, ignore_time_window=True)
     return {"ok": True, "details": res}
 

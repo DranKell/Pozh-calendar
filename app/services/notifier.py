@@ -74,6 +74,8 @@ def load_notifier_config() -> Dict[str, Any]:
         "triggers": {
             "remind_days_before": parsed_remind if parsed_remind else [10, 7, 3, 1],
             "daily_digest_time": triggers_sec.get("daily_digest_time", "08:30"),
+            "allowed_time_start": triggers_sec.get("allowed_time_start", "08:00"),
+            "allowed_time_end": triggers_sec.get("allowed_time_end", "18:00"),
             "notify_on_overdue": triggers_sec.getboolean("notify_on_overdue", fallback=True),
             "notify_on_invoice_created": triggers_sec.getboolean("notify_on_invoice_created", fallback=True),
             "notify_on_invoice_paid": triggers_sec.getboolean("notify_on_invoice_paid", fallback=True),
@@ -81,7 +83,37 @@ def load_notifier_config() -> Dict[str, Any]:
     }
 
 
-def send_max_message(text: str, recipient_id: Optional[str] = None) -> Dict[str, Any]:
+def is_within_allowed_hours(config: Optional[Dict[str, Any]] = None) -> (bool, str):
+    """
+    Проверяет, попадает ли текущее локальное время в разрешённый интервал (по умолчанию 8:00 - 18:00).
+    Возвращает (is_allowed, reason).
+    """
+    if config is None:
+        config = load_notifier_config()
+    
+    triggers = config.get("triggers", {})
+    start_str = triggers.get("allowed_time_start", "08:00").strip()
+    end_str = triggers.get("allowed_time_end", "18:00").strip()
+
+    try:
+        sh, sm = map(int, start_str.split(":"))
+        eh, em = map(int, end_str.split(":"))
+    except Exception:
+        sh, sm = 8, 0
+        eh, em = 18, 0
+
+    now = datetime.now()
+    cur_minutes = now.hour * 60 + now.minute
+    start_minutes = sh * 60 + sm
+    end_minutes = eh * 60 + em
+
+    if start_minutes <= cur_minutes <= end_minutes:
+        return True, "Разрешённое время"
+    
+    return False, f"Отправка отложена: текущее время {now.strftime('%H:%M')} вне разрешённого интервала ({start_str} - {end_str})"
+
+
+def send_max_message(text: str, recipient_id: Optional[str] = None, ignore_time_window: bool = False) -> Dict[str, Any]:
     """
     Отправка сообщения пользователю или в чат через MAX Bot API.
     Поддерживает прямую отправку по user_id или chat_id.
@@ -91,6 +123,12 @@ def send_max_message(text: str, recipient_id: Optional[str] = None) -> Dict[str,
 
     if not max_cfg.get("enabled", False):
         return {"ok": False, "error": "Оповещения в MAX отключены в msg.cfg [max_messenger]"}
+
+    if not ignore_time_window:
+        allowed, reason = is_within_allowed_hours(config)
+        if not allowed:
+            logger.info("Отправка в MAX отменена: %s", reason)
+            return {"ok": False, "error": reason, "quiet_hours": True}
 
     token = max_cfg.get("bot_token", "").strip()
     if not token or token in ("your_max_bot_token_secret_here", "ВАШ_ДЕЙСТВУЮЩИЙ_ТОКЕН_БОТА_MAX"):
@@ -143,7 +181,8 @@ def send_email_message(
     subject: str,
     text_content: str,
     html_content: Optional[str] = None,
-    to_recipients: Optional[List[str]] = None
+    to_recipients: Optional[List[str]] = None,
+    ignore_time_window: bool = False
 ) -> Dict[str, Any]:
     """
     Отправка электронного письма через SMTP (подходит для локального Mailcow, внешних SMTP).
@@ -154,6 +193,12 @@ def send_email_message(
 
     if not email_cfg.get("enabled", False):
         return {"ok": False, "error": "Отправка почты отключена в msg.cfg [email]"}
+
+    if not ignore_time_window:
+        allowed, reason = is_within_allowed_hours(config)
+        if not allowed:
+            logger.info("Отправка Email отменена: %s", reason)
+            return {"ok": False, "error": reason, "quiet_hours": True}
 
     host = email_cfg.get("smtp_host", "").strip()
     if not host or host == "smtp.example.com":
@@ -353,7 +398,7 @@ def send_reminders_batch(items: List[Dict[str, Any]], days_left: int, recipient_
     return send_max_message(text, recipient_id=recipient_id)
 
 
-def broadcast_notification(subject: str, message_text: str) -> Dict[str, Any]:
+def broadcast_notification(subject: str, message_text: str, ignore_time_window: bool = False) -> Dict[str, Any]:
     """
     Широковещательная рассылка одновременно во все активные каналы:
     - Мессенджер MAX (в default_chat_id и alert_chat_ids)
@@ -381,7 +426,7 @@ def broadcast_notification(subject: str, message_text: str) -> Dict[str, Any]:
         max_ok = True
         max_errors = []
         for chat_id in targets:
-            res = send_max_message(message_text, recipient_id=chat_id)
+            res = send_max_message(message_text, recipient_id=chat_id, ignore_time_window=ignore_time_window)
             if not res.get("ok"):
                 max_ok = False
                 max_errors.append(f"{chat_id}: {res.get('error')}")
@@ -393,7 +438,7 @@ def broadcast_notification(subject: str, message_text: str) -> Dict[str, Any]:
     # 2. Отправка по Email
     if email_cfg.get("enabled"):
         results["email"]["attempted"] = True
-        res_email = send_email_message(subject=subject, text_content=message_text)
+        res_email = send_email_message(subject=subject, text_content=message_text, ignore_time_window=ignore_time_window)
         results["email"]["ok"] = res_email.get("ok", False)
         if not res_email.get("ok"):
             results["email"]["error"] = res_email.get("error")
@@ -401,10 +446,10 @@ def broadcast_notification(subject: str, message_text: str) -> Dict[str, Any]:
     return results
 
 
-def check_and_send_scheduled_reminders(db_session_factory) -> Dict[str, Any]:
+def check_and_send_scheduled_reminders(db_session_factory, ignore_time_window: bool = False) -> Dict[str, Any]:
     """
     Фоновая проверка сроков ТО: вычисляет напоминания за 10, 7, 3, 1 дней с учётом выходных
-    и рассылает их по MAX и Email.
+    и рассылает их по MAX и Email в разрешённое время (с 8:00 до 18:00).
     """
     from app.models.object import Object
     from app.models.assignment import Assignment
@@ -415,6 +460,12 @@ def check_and_send_scheduled_reminders(db_session_factory) -> Dict[str, Any]:
     config = load_notifier_config()
     if not config["general"].get("enabled", True):
         return {"ok": False, "reason": "Уведомления отключены в [general] msg.cfg"}
+
+    if not ignore_time_window:
+        allowed, reason = is_within_allowed_hours(config)
+        if not allowed:
+            logger.info("Пропуск фоновой рассылки напоминаний: %s", reason)
+            return {"ok": False, "reason": reason, "quiet_hours": True}
 
     trigger_days = config["triggers"].get("remind_days_before", [10, 7, 3, 1])
     today = date.today()
@@ -470,7 +521,7 @@ def check_and_send_scheduled_reminders(db_session_factory) -> Dict[str, Any]:
                 text = format_grouped_digest_message(day_items, days_left)
                 subj = f"Сводный план ТО: {len(day_items)} объектов (через {days_left} дн.)"
 
-            b_res = broadcast_notification(subject=subj, message_text=text)
+            b_res = broadcast_notification(subject=subj, message_text=text, ignore_time_window=ignore_time_window)
             sent_reports.append({"days_left": days_left, "count": len(day_items), "result": b_res})
 
         return {"ok": True, "sent_groups": len(sent_reports), "reports": sent_reports}

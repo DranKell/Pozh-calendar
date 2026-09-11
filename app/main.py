@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.db.session import engine
 from app.db.base import Base
-from app.routers import objects, works, assignments, executions, dashboard, invoices, settings, ai, companies
+from app.routers import objects, works, assignments, executions, dashboard, invoices, settings, ai, companies, reports
 
 Base.metadata.create_all(bind=engine)
 
@@ -105,6 +105,8 @@ app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(reports.router, prefix="/api/objects/{object_id}", tags=["object_reports"])
 
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 

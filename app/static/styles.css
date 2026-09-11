@@ -203,11 +203,19 @@ body {
 .stat-note b { color: var(--text); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 .dash-cols { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; }
-.dash-cols-3 { grid-template-columns: 1fr 1fr 1.2fr; }
-@media (max-width: 1200px) {
+.dash-cols-3 { display:grid; grid-template-columns: 1.15fr 1.15fr 1fr; gap:16px; align-items:start; }
+@media (max-width: 1400px) {
   .dash-cols-3 { grid-template-columns: 1fr; }
 }
-.panel-debtors table td { padding: 10px 8px; }
+.panel-dash-table { padding: 14px 16px; }
+.panel-dash-table table { table-layout: auto; }
+.panel-dash-table td { padding: 9px 10px; font-size: 13px; line-height: 1.35; }
+.panel-dash-table th { padding: 9px 10px; }
+.panel-dash-table .col-date { white-space: nowrap; width: 85px; }
+.panel-dash-table .col-obj { min-width: 120px; word-break: break-word; }
+.panel-dash-table .col-work { min-width: 100px; }
+.panel-dash-table .col-status { white-space: nowrap; width: 105px; text-align: right; }
+.panel-debtors table td { padding: 9px 8px; }
 
 /* ---------- панели / таблицы ---------- */
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; }
@@ -274,8 +282,15 @@ textarea.inp { resize:vertical; }
 
 /* ---------- модалки ---------- */
 .modal-overlay { position:fixed; inset:0; background:rgba(3,6,12,.74); display:flex; align-items:center; justify-content:center; z-index:50; animation:fade .2s ease; }
-.modal { width:min(720px, 94vw); max-height:88vh; overflow-y:auto; background:linear-gradient(170deg, var(--panel-2), var(--panel));
+.modal { width:min(760px, 95vw); max-height:90vh; overflow-y:auto; background:linear-gradient(170deg, var(--panel-2), var(--panel));
   border:1px solid var(--line-strong); border-radius:16px; padding:24px 26px; box-shadow:0 30px 80px rgba(0,0,0,.55); animation:mpop .26s cubic-bezier(.2,.9,.3,1.15); }
+.modal.modal-wide { width:min(1100px, 96vw); max-height:92vh; }
+.modal.modal-compact { width:min(540px, 94vw); }
+.day-modal-wrap { width:100%; overflow-x:auto; border-radius:10px; border:1px solid var(--line); margin:12px 0 16px; background:var(--panel); }
+.day-modal-table { width:100%; min-width:820px; border-collapse:collapse; }
+.day-modal-table th { padding:10px 12px; white-space:nowrap; background:var(--panel-2); position:sticky; top:0; z-index:2; }
+.day-modal-table td { padding:10px 12px; vertical-align:middle; }
+.day-modal-table .row-actions { display:inline-flex; align-items:center; gap:6px; flex-wrap:nowrap; }
 .modal-head, .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--line); }
 .modal-title { font-family:var(--font-display); font-size:16.5px; font-weight:600; }
 .modal-x, .btn-close { background:none; border:none; color:var(--text-3); font-size:22px; line-height:1; cursor:pointer; transition:color .15s, transform .2s; }
@@ -534,7 +549,11 @@ textarea.inp { resize:vertical; }
 
 
 
-.ai-modal-box { width:880px; max-width:95vw; }
+.ai-modal-box { width:min(1080px, 96vw); max-height:92vh; }
+.ai-modal-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:16px; }
+@media (max-width: 900px) {
+  .ai-modal-title { white-space:normal; font-size:14.5px; }
+}
 .ai-tabs { display:flex; gap:8px; border-bottom:1px solid var(--line); margin-bottom:16px; padding-bottom:6px; }
 .ai-tab-btn {
   padding:8px 16px; border-radius:8px; background:transparent; border:1px solid transparent;
@@ -870,6 +889,119 @@ textarea.inp { resize:vertical; }
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 14px; margin-top: 12px; font-size: 12.5px;
+}
+
+/* ---------- Выпадающий поиск с автоподбором (Combobox) ---------- */
+.searchable-combobox {
+  position: relative;
+  display: inline-block;
+  min-width: 240px;
+}
+.combobox-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.combobox-input {
+  width: 100%;
+  padding-right: 50px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--text);
+  font: 500 13px var(--font-body);
+  transition: all .18s ease;
+}
+.combobox-input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(245,165,36,0.18);
+}
+.combobox-input::placeholder {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.combobox-actions {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.combobox-clear {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color .15s;
+}
+.combobox-clear:hover {
+  color: var(--ember);
+}
+.combobox-caret {
+  color: var(--text-3);
+  font-size: 10px;
+  pointer-events: none;
+  transition: transform .2s ease;
+}
+.searchable-combobox.open .combobox-caret {
+  transform: rotate(180deg);
+  color: var(--amber);
+}
+.combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  z-index: 99;
+  display: none;
+  animation: fadeIn .15s ease;
+}
+.searchable-combobox.open .combobox-dropdown {
+  display: block;
+}
+.combobox-item {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: all .12s ease;
+}
+.combobox-item:last-child {
+  border-bottom: none;
+}
+.combobox-item:hover, .combobox-item.active {
+  background: rgba(245,165,36,0.12);
+  color: var(--amber-2);
+}
+.combobox-item.selected {
+  background: rgba(245,165,36,0.18);
+  color: var(--amber-2);
+  font-weight: 600;
+}
+.combobox-item-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.combobox-item .item-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
 }
 
 

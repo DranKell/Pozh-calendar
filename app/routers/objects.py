@@ -130,13 +130,22 @@ def update_object(oid: str, data: ObjectIn, db: Session = Depends(get_db)):
 
 
 @router.delete("/{oid}")
-def delete_object(oid: str, data: DeleteIn, db: Session = Depends(get_db)):
+def delete_object(oid: str, data: DeleteIn, purge: bool = False, db: Session = Depends(get_db)):
     reason = (data.Reason or "").strip()
     if not reason:
         raise HTTPException(400, "Укажите причину удаления")
     o = db.query(Object).filter(Object.id == oid).first()
     if not o:
         raise HTTPException(404, "Объект не найден")
+
+    # Если запрошено полное удаление (например, для тестовых объектов)
+    if purge or "тест" in (o.name or "").lower() or oid.startswith("TEST-"):
+        db.query(Execution).filter(Execution.object_id == oid).delete()
+        db.query(Assignment).filter(Assignment.object_id == oid).delete()
+        db.delete(o)
+        db.commit()
+        return {"ok": True, "archived_assignments": 0, "purged": True}
+
     o.status = "Удалён"
     o.delete_reason = reason
     now = datetime.now()
