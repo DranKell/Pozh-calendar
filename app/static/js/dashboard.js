@@ -37,22 +37,6 @@ async function loadDashboard() {
   const overRows = (over.data || []).map(e => execTr(e, true)).join("");
   const debtorsList = debtorsRes.ok ? debtorsRes.data : [];
 
-  // Выручка
-  const revPct = s.RevenuePercent || 0;
-  const revActualFormatted = fmtMoney(s.RevenueActual || 0);
-  const revPlannedFormatted = fmtMoney(s.RevenuePlanned || 0);
-
-  // SLA
-  const slaPct = s.SlaPercent || 0;
-  let slaTone = "ok";
-  if (slaPct < 75) slaTone = "danger";
-  else if (slaPct < 90) slaTone = "amber";
-
-  // Дебиторка
-  const debtTotalFormatted = fmtMoney(s.TotalDebt || 0);
-  const debtorsCount = s.DebtorsCount || 0;
-  const debtTone = (s.TotalDebt || 0) > 0 ? "danger" : "ok";
-
   // Таблица дебиторов
   let debtorsTableHtml = "";
   if (debtorsList.length > 0) {
@@ -70,33 +54,7 @@ async function loadDashboard() {
   } else {
     debtorsTableHtml = '<div class="empty"><span class="big">🎉</span>Дебиторской задолженности нет. Все счета оплачены!</div>';
   }
-
   host.innerHTML =
-    '<div class="stats stats-kpi">' +
-      '<div class="stat stat-featured moon">' +
-        '<div class="stat-label">💰 Выручка за месяц (План / Факт)</div>' +
-        '<div class="stat-value rev-val">' + revActualFormatted + ' <span class="stat-subval">/ ' + revPlannedFormatted + '</span></div>' +
-        '<div class="kpi-progress-wrap">' +
-          '<div class="kpi-progress-bar" style="width:' + Math.min(100, Math.max(0, revPct)) + '%"></div>' +
-        '</div>' +
-        '<div class="stat-note">Выполнение финансового плана: <b>' + revPct + '%</b></div>' +
-      '</div>' +
-
-      '<div class="stat ' + slaTone + '">' +
-        '<div class="stat-label">⏳ SLA соблюдения регламентов</div>' +
-        '<div class="stat-value" style="color:' + (slaPct >= 90 ? 'var(--moss)' : (slaPct >= 75 ? 'var(--amber-2)' : 'var(--ember)')) + '">' +
-          slaPct + '% <span class="stat-subval">(' + (s.DoneOnTime || 0) + ' вовремя)</span>' +
-        '</div>' +
-        '<div class="stat-note">' + (slaPct >= 90 ? 'Высокая дисциплина ТО' : 'Есть срывы плановых сроков') + '</div>' +
-      '</div>' +
-
-      '<div class="stat ' + debtTone + '">' +
-        '<div class="stat-label">🔴 Дебиторская задолженность</div>' +
-        '<div class="stat-value" style="color:' + ((s.TotalDebt || 0) > 0 ? 'var(--ember)' : 'var(--moss)') + '">' + debtTotalFormatted + '</div>' +
-        '<div class="stat-note">' + (debtorsCount > 0 ? (debtorsCount + ' объектов с задолженностью') : 'Задолженности нет') + '</div>' +
-      '</div>' +
-    '</div>' +
-
     '<div class="stats">' +
       statCard("Объектов", s.ObjectsCount, "на обслуживании", "") +
       statCard("Видов работ", s.WorksCount, "регламенты ПБ", "moon") +

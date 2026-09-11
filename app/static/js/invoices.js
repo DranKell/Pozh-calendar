@@ -21,8 +21,29 @@ async function loadInvoices() {
   const host = $("#page-invoices");
   if (!host) return;
   host.innerHTML = '<div class="empty"><span class="big">💸</span>Загружаем счета…</div>';
-  const r = await api("/api/invoices/");
+  const [r, statsRes] = await Promise.all([
+    api("/api/invoices/"),
+    api("/api/dashboard/stats")
+  ]);
   if (!r.ok) { host.innerHTML = '<div class="empty">Не удалось загрузить счета</div>'; return; }
+
+  const s = (statsRes && statsRes.ok) ? statsRes.data : {};
+
+  // Выручка за месяц (План / Факт)
+  const revPct = s.RevenuePercent || 0;
+  const revActualFormatted = fmtMoney(s.RevenueActual || 0);
+  const revPlannedFormatted = fmtMoney(s.RevenuePlanned || 0);
+
+  // SLA соблюдения регламентов
+  const slaPct = s.SlaPercent || 0;
+  let slaTone = "ok";
+  if (slaPct < 75) slaTone = "danger";
+  else if (slaPct < 90) slaTone = "amber";
+
+  // Дебиторская задолженность
+  const debtTotalFormatted = fmtMoney(s.TotalDebt || 0);
+  const debtorsCount = s.DebtorsCount || 0;
+  const debtTone = (s.TotalDebt || 0) > 0 ? "danger" : "ok";
 
   const rows = r.data.map(i => {
     const canPay = i.Status !== "Оплачен" && i.Status !== "Отменён" && (i.Debt || 0) > 0;
@@ -47,6 +68,31 @@ async function loadInvoices() {
   }).join("");
 
   host.innerHTML = `
+    <div class="stats stats-kpi">
+      <div class="stat stat-featured moon">
+        <div class="stat-label">💰 Выручка за месяц (План / Факт)</div>
+        <div class="stat-value rev-val">${revActualFormatted} <span class="stat-subval">/ ${revPlannedFormatted}</span></div>
+        <div class="kpi-progress-wrap">
+          <div class="kpi-progress-bar" style="width:${Math.min(100, Math.max(0, revPct))}%"></div>
+        </div>
+        <div class="stat-note">Выполнение финансового плана: <b>${revPct}%</b></div>
+      </div>
+
+      <div class="stat ${slaTone}">
+        <div class="stat-label">⏳ SLA соблюдения регламентов</div>
+        <div class="stat-value" style="color:${slaPct >= 90 ? 'var(--moss)' : (slaPct >= 75 ? 'var(--amber-2)' : 'var(--ember)')}">
+          ${slaPct}% <span class="stat-subval">(${s.DoneOnTime || 0} вовремя)</span>
+        </div>
+        <div class="stat-note">${slaPct >= 90 ? 'Высокая дисциплина ТО' : 'Есть срывы плановых сроков'}</div>
+      </div>
+
+      <div class="stat ${debtTone}">
+        <div class="stat-label">🔴 Дебиторская задолженность</div>
+        <div class="stat-value" style="color:${(s.TotalDebt || 0) > 0 ? 'var(--ember)' : 'var(--moss)'}">${debtTotalFormatted}</div>
+        <div class="stat-note">${debtorsCount > 0 ? (debtorsCount + ' объектов с задолженностью') : 'Задолженности нет'}</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <button class="btn btn-amber" data-action="inv-new">+ Новый счёт</button>
       <div class="search-box"><input type="text" class="inp" id="invSearch" placeholder="Поиск счетов…"></div>

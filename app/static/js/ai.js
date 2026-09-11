@@ -610,9 +610,9 @@ function openHelpModal(initialTab = "steps") {
           <div class="flow-step-card">
             <div class="flow-step-num" style="background:rgba(111,183,232,0.15);color:var(--moon);border-color:var(--moon);">📊</div>
             <div class="flow-step-body">
-              <div class="flow-step-title"><span>Финансовый контроль и Дашборд</span></div>
+              <div class="flow-step-title"><span>Финансовый контроль и KPI в разделе «Счета»</span></div>
               <div class="flow-step-desc">
-                План/Факт по выручке текущего месяца, контроль дебиторской задолженности по контрагентам с переходом к неоплаченным счетам в 1 клик, а также расчёт коэффициента соблюдения сроков регламентов (SLA).
+                План/Факт по выручке текущего месяца, показатель соблюдения сроков регламентов (SLA), контроль общей дебиторской задолженности с детализацией по контрагентам и выставление счетов в 1 клик.
               </div>
             </div>
           </div>
