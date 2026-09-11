@@ -148,6 +148,7 @@ document.addEventListener("click", async ev => {
       });
       break;
 
+
     case "work-new": workFormModal(); break;
     case "work-edit": { const r = await api("/api/works/" + id); if (r.ok) workFormModal(r.data); break; }
     case "work-save": await saveWork(btn.dataset.id); break;

@@ -424,7 +424,7 @@ function openHelpModal(initialTab = "steps") {
     <div class="modal-body" style="padding-top:14px;">
       <div class="help-tabs">
         <button class="help-tab-btn ${initialTab === 'steps' ? 'active' : ''}" id="tabBtnSteps">📋 5 шагов работы</button>
-        <button class="help-tab-btn ${initialTab === 'docs' ? 'active' : ''}" id="tabBtnDocs">📑 Документы и ППР 1479</button>
+        <button class="help-tab-btn ${initialTab === 'features' ? 'active' : ''}" id="tabBtnFeatures">✨ Все функции и перенос</button>
         <button class="help-tab-btn ${initialTab === 'ai' ? 'active' : ''}" id="tabBtnAi">🤖 ИИ-консультант</button>
         <button class="help-tab-btn ${initialTab === 'colors' ? 'active' : ''}" id="tabBtnColors">🎨 Цвета и статусы</button>
       </div>
@@ -464,7 +464,7 @@ function openHelpModal(initialTab = "steps") {
               </div>
               <div class="flow-step-points">
                 <div class="flow-step-point"><span class="point-ico">✦</span> ИИ-конструктор: назовите объект (например «Школа №5») и ИИ сам определит класс Ф1.2.</div>
-                <div class="flow-step-point"><span class="point-ico">✦</span> Кнопка «📥 Импорт через ИИ» позволяет пачкой распознать контрагентов из текста или файлов DOCX/PDF.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Карточка объекта хранит контакты ответственных лиц и историю всех систем.</div>
               </div>
             </div>
             <button class="btn btn-amber btn-sm flow-step-btn" data-action="go-page" data-target="objects">1. К Объектам →</button>
@@ -479,11 +479,11 @@ function openHelpModal(initialTab = "steps") {
                 <span class="tag" style="background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3);">СП 484 / СП 486</span>
               </div>
               <div class="flow-step-desc">
-                В разделе <b>«Виды работ»</b> собраны нормативные регламенты: АПС, СОУЭ, АУПТ, ВПВ, дымоудаление и огнетушители с кодами ПБ-XX.YY.
+                В разделе <b>«Виды работ»</b> собраны все нормативные регламенты: АПС, СОУЭ, АУПТ, ВПВ, дымоудаление и огнетушители с кодами ПБ-XX.YY.
               </div>
               <div class="flow-step-points">
-                <div class="flow-step-point"><span class="point-ico">✦</span> Базовые регламенты уже предзаполнены по нормам МЧС РФ и ГОСТ.</div>
-                <div class="flow-step-point"><span class="point-ico">✦</span> Можно гибко задавать периодичность (ежемесячно, ежеквартально, ежегодно) и стоимость за выезд.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Базовые работы уже предзаполнены по нормам МЧС РФ и ГОСТ.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Можно задавать регламентную периодичность (ежемесячно, ежеквартально, ежегодно) и стоимость.</div>
               </div>
             </div>
             <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="works">2. Виды работ →</button>
@@ -498,11 +498,11 @@ function openHelpModal(initialTab = "steps") {
                 <span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3);">Автопланирование</span>
               </div>
               <div class="flow-step-desc">
-                В разделе <b>«Назначения»</b> свяжите Объект с конкретными Видами работ. Либо в «Объектах» нажмите <b>«🤖 ИИ»</b> для автоматического подбора всего пула регламентов по классу ФПО.
+                В разделе <b>«Назначения»</b> свяжите Объект с конкретными Видами работ. Система автоматически рассчитает даты всех выездов на год вперёд без накладок.
               </div>
               <div class="flow-step-points">
-                <div class="flow-step-point"><span class="point-ico">✦</span> Выборочное или пакетное добавление регламентов с предпросмотром дат на год.</div>
-                <div class="flow-step-point"><span class="point-ico">✦</span> Возможность указать ответственного инженера и интервалы выездов.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Кнопка «Сформировать график» создаёт календарную сетку в один клик.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Возможность указать закреплённого мастера/инженера и интервал ТО.</div>
               </div>
             </div>
             <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="assignments">3. Назначения →</button>
@@ -513,15 +513,15 @@ function openHelpModal(initialTab = "steps") {
             <div class="flow-step-num">4</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Шаг 4: Контролируйте Календарь и Журнал ТО</span>
+                <span>Шаг 4: Контролируйте Календарь и Журнал выездов</span>
                 <span class="tag" style="background:rgba(245,165,36,0.15);color:var(--amber-2);border:1px solid rgba(245,165,36,0.3);">План vs Факт</span>
               </div>
               <div class="flow-step-desc">
-                В <b>«Календаре»</b> кликайте на любой день — модальное окно покажет все работы дня, позволит выполнить их пачкой (с указанием ФИО мастера) или перенести на новую дату через <b>«↻ Перенести»</b>.
+                В <b>«Календаре»</b> наглядно видны даты выездов по цветам (синий — план, зелёный — факт, красный — просрочено). Кликните по событию, чтобы закрыть его или перенести.
               </div>
               <div class="flow-step-points">
-                <div class="flow-step-point"><span class="point-ico">✦</span> В <b>«Журнале ТО»</b> работает живой поиск объектов и фильтрация за любой период.</div>
-                <div class="flow-step-point"><span class="point-ico">✦</span> Звуковые и визуальные напоминания (колокольчик с 8:00 до 18:00) о приближении сроков ТО за 7 дней.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> В <b>«Журнале»</b> доступно пакетное закрытие всех работ за выбранный месяц.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Звуковые и визуальные напоминания (колокольчик в шапке) предупредят о сроках.</div>
               </div>
             </div>
             <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="calendar">4. В Календарь →</button>
@@ -532,15 +532,15 @@ function openHelpModal(initialTab = "steps") {
             <div class="flow-step-num">5</div>
             <div class="flow-step-body">
               <div class="flow-step-title">
-                <span>Шаг 5: Документооборот — Счета, Акты и Журнал ППР 1479</span>
-                <span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">Отчётность МЧС</span>
+                <span>Шаг 5: Выставляйте Счета и печатайте Акты</span>
+                <span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">Документооборот</span>
               </div>
               <div class="flow-step-desc">
-                Выгружайте официальный <b>«Журнал эксплуатации систем противопожарной защиты»</b> по ППР РФ № 1479 в печать А4 или Excel. В разделе <b>«Счета»</b> выставляйте счета с расчётом оплаты по рабочим дням.
+                В разделе <b>«Счета»</b> нажмите «+ Выставить счёт». Выберите организацию-исполнителя, объект и период — система автоматически подтянет выполненные работы и рассчитает сумму.
               </div>
               <div class="flow-step-points">
-                <div class="flow-step-point"><span class="point-ico">✦</span> Генерация официального Акта проверки работоспособности (АПС, СОУЭ, ВПВ на водоотдачу).</div>
-                <div class="flow-step-point"><span class="point-ico">✦</span> Поддержка нескольких юрлиц-исполнителей (МУП, ООО, ИП) с отдельными реквизитами и логотипами.</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Готовые печатные формы счёта и двустороннего Акта сдачи-приёмки (А4 / PDF).</div>
+                <div class="flow-step-point"><span class="point-ico">✦</span> Автоматическая нумерация с префиксами и отслеживание статуса оплаты.</div>
               </div>
             </div>
             <button class="btn btn-ghost btn-sm flow-step-btn" data-action="go-page" data-target="invoices">5. Счета и Акты →</button>
@@ -549,48 +549,7 @@ function openHelpModal(initialTab = "steps") {
         </div>
       </div>
 
-      <!-- ВКЛАДКА 2: ДОКУМЕНТЫ И ППР 1479 -->
-      <div id="helpTabDocs" class="${initialTab === 'docs' ? '' : 'hidden'}">
-        <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0;">
-          <div class="flow-step-card" style="border-left:4px solid var(--amber-2);">
-            <div>
-              <div style="font-weight:700;color:var(--amber-2);font-size:14.5px;margin-bottom:6px;">📑 Журнал эксплуатации систем противопожарной защиты (ППР РФ № 1479)</div>
-              <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:8px;">
-                В соответствии с Постановлением Правительства РФ № 1479 «О противопожарном режиме», руководитель организации обеспечивает ведение журнала эксплуатации систем противопожарной защиты.
-              </div>
-              <div style="font-size:12.5px;color:var(--text-2);line-height:1.5;">
-                • Выгружается из раздела <b>«Журнал ТО»</b> по кнопке <b>«📑 Журнал ППР 1479»</b> (альбомный формат А4 с титульным листом) либо в <b>«📊 Excel»</b> по ГОСТу.<br>
-                • Включает разделы: проверки АПС/СОУЭ, гидравлические испытания ВПВ, проверки пожарных кранов, перекатку рукавов, освидетельствование огнетушителей.
-              </div>
-            </div>
-          </div>
-
-          <div class="flow-step-card" style="border-left:4px solid var(--moon);">
-            <div>
-              <div style="font-weight:700;color:var(--moon);font-size:14.5px;margin-bottom:6px;">📄 Акт проверки работоспособности и освидетельствования</div>
-              <div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:8px;">
-                Официальный протокол комиссионной проверки систем противопожарной защиты для надзорных органов МЧС и страховых компаний.
-              </div>
-              <div style="font-size:12.5px;color:var(--text-2);line-height:1.5;">
-                • Формируется из раздела <b>«Журнал ТО»</b> кнопкой <b>«📄 Акт проверки»</b>, а также напрямую из карточки объекта.<br>
-                • Содержит реквизиты договора, состав комиссии (представитель заказчика и лицензированной организации МЧС), перечень проверенных узлов и заключение о готовности.
-              </div>
-            </div>
-          </div>
-
-          <div class="flow-step-card" style="border-left:4px solid var(--moss);">
-            <div>
-              <div style="font-weight:700;color:var(--moss);font-size:14.5px;margin-bottom:6px;">💸 Финансовый контур и дебиторская задолженность</div>
-              <div style="font-size:12.5px;color:var(--text-2);line-height:1.5;">
-                • Срок оплаты счёта автоматически рассчитывается по рабочим дням (исключая выходные и праздники).<br>
-                • На <b>«Дашборде»</b> блок дебиторской задолженности подсвечивает неоплаченные суммы с возможностью перехода в один клик к фильтрации счетов.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ВКЛАДКА 3: ИИ-КОНСУЛЬТАНТ -->
+      <!-- ВКЛАДКА 2: ИИ-КОНСУЛЬТАНТ -->
       <div id="helpTabAi" class="${initialTab === 'ai' ? '' : 'hidden'}">
         <div class="ai-consultant-box">
           <div style="font-size:13px;color:var(--text-2);">
@@ -600,8 +559,7 @@ function openHelpModal(initialTab = "steps") {
           <div class="ai-quick-chips">
             <span class="ai-quick-chip" data-ask="С чего начать работу в системе?">С чего начать?</span>
             <span class="ai-quick-chip" data-ask="Какая периодичность ТО для системы АПС по СП 484?">Периодичность ТО АПС</span>
-            <span class="ai-quick-chip" data-ask="Как выгрузить журнал по ППР РФ № 1479?">Журнал ППР 1479</span>
-            <span class="ai-quick-chip" data-ask="Как перенести регламентную работу на другую дату?">Перенос даты ТО</span>
+            <span class="ai-quick-chip" data-ask="Как выставить счёт и распечатать Акт?">Выставить счёт и Акт</span>
             <span class="ai-quick-chip" data-ask="Что означают классы ФПО (Ф3.1, Ф4.3)?">Классы ФПО (ст. 32 123-ФЗ)</span>
             <span class="ai-quick-chip" data-ask="Как работает ИИ без интернета?">Работа ИИ без интернета</span>
           </div>
@@ -615,7 +573,7 @@ function openHelpModal(initialTab = "steps") {
         </div>
       </div>
 
-      <!-- ВКЛАДКА 4: ЦВЕТА И СТАТУСЫ -->
+      <!-- ВКЛАДКА 3: ЦВЕТА И СТАТУСЫ -->
       <div id="helpTabColors" class="${initialTab === 'colors' ? '' : 'hidden'}">
         <div style="display:flex;flex-direction:column;gap:10px;padding:6px 0;">
           <div class="flow-step-card" style="border-left:4px solid var(--blue);">
@@ -633,15 +591,65 @@ function openHelpModal(initialTab = "steps") {
           <div class="flow-step-card" style="border-left:4px solid var(--amber-2);">
             <div>
               <div style="font-weight:700;color:var(--amber-2);font-size:14px;margin-bottom:4px;">🟡 Жёлтый / Янтарный — Перенесено (Postponed)</div>
-              <div style="font-size:12.5px;color:var(--text-2);">Выезд перенесен на другую дату по согласованию с заказчиком через диалог переноса.</div>
+              <div style="font-size:12.5px;color:var(--text-2);">Выезд перенесен на другую согласованную дату по заявке заказчика или техническим причинам.</div>
             </div>
           </div>
           <div class="flow-step-card" style="border-left:4px solid var(--red);">
             <div>
               <div style="font-weight:700;color:var(--red);font-size:14px;margin-bottom:4px;">🔴 Красный — Просрочено (Overdue)</div>
-              <div style="font-size:12.5px;color:var(--text-2);">Дата регламентного ТО наступила в прошлом, но факт выполнения не зафиксирован. Отображается в дашборде и колокольчике.</div>
+              <div style="font-size:12.5px;color:var(--text-2);">Дата регламентного ТО наступила в прошлом, но факт выполнения не зафиксирован. Требует немедленного внимания диспетчера!</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА 4: ВСЕ ВОЗМОЖНОСТИ И ПЕРЕНОС НА СЕРВЕР -->
+      <div id="helpTabFeatures" class="${initialTab === 'features' ? '' : 'hidden'}">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0;">
+          
+          <div class="flow-step-card">
+            <div class="flow-step-num" style="background:rgba(111,183,232,0.15);color:var(--moon);border-color:var(--moon);">📊</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title"><span>Финансовый контроль и Дашборд</span></div>
+              <div class="flow-step-desc">
+                План/Факт по выручке текущего месяца, контроль дебиторской задолженности по контрагентам с переходом к неоплаченным счетам в 1 клик, а также расчёт коэффициента соблюдения сроков регламентов (SLA).
+              </div>
+            </div>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num" style="background:rgba(245,165,36,0.15);color:var(--amber-2);border-color:var(--amber);">📑</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title"><span>Журнал по ППР РФ № 1479 и Акты освидетельствования</span></div>
+              <div class="flow-step-desc">
+                В разделе «Журнал ТО» доступна мгновенная выгрузка официального Журнала эксплуатации систем противопожарной защиты (постановление Правительства РФ № 1479) в печатную форму А4 и в Excel, а также формирование двусторонних Актов проверки работоспособности (АПС, СОУЭ, ВПВ).
+              </div>
+            </div>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num" style="background:rgba(92,201,138,0.15);color:var(--moss);border-color:var(--moss);">🔔</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title"><span>Колокольчик и уведомления</span></div>
+              <div class="flow-step-desc">
+                Уведомления за 7 дней до плановых выездов с мягким звуковым сигналом, отметкой «Прочитано всё» и ограничением по времени суток (с 08:00 до 18:00).
+              </div>
+            </div>
+          </div>
+
+          <div class="flow-step-card">
+            <div class="flow-step-num" style="background:rgba(168,85,247,0.15);color:#c084fc;border-color:#c084fc;">🌐</div>
+            <div class="flow-step-body">
+              <div class="flow-step-title"><span>Перенос на рабочий сервер (Linux / Windows VPS)</span></div>
+              <div class="flow-step-desc">
+                1. <b>Клонирование</b>: <code>git clone &lt;repo-url&gt;</code><br>
+                2. <b>Окружение</b>: <code>python -m venv venv &amp;&amp; source venv/bin/activate</code> (или <code>venv\\Scripts\\activate</code>)<br>
+                3. <b>Зависимости</b>: <code>pip install -r requirements.txt</code><br>
+                4. <b>Запуск</b>: <code>python run.py</code> (сервер стартует на порту 9000, автоматически поднимает SQLite базу <code>data/app.db</code> и фоновые планировщики).
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -665,34 +673,34 @@ function openHelpModal(initialTab = "steps") {
 
   // Переключение вкладок
   const tabSteps = $("#helpTabSteps");
-  const tabDocs = $("#helpTabDocs");
+  const tabFeatures = $("#helpTabFeatures");
   const tabAi = $("#helpTabAi");
   const tabColors = $("#helpTabColors");
   const btnTSteps = $("#tabBtnSteps");
-  const btnTDocs = $("#tabBtnDocs");
+  const btnTFeatures = $("#tabBtnFeatures");
   const btnTAi = $("#tabBtnAi");
   const btnTColors = $("#tabBtnColors");
 
   function switchTab(target) {
-    [tabSteps, tabDocs, tabAi, tabColors].forEach(el => el && el.classList.add("hidden"));
-    [btnTSteps, btnTDocs, btnTAi, btnTColors].forEach(b => b && b.classList.remove("active"));
-    if (target === "steps" && tabSteps && btnTSteps) {
+    [tabSteps, tabFeatures, tabAi, tabColors].forEach(el => el && el.classList.add("hidden"));
+    [btnTSteps, btnTFeatures, btnTAi, btnTColors].forEach(b => b && b.classList.remove("active"));
+    if (target === "steps") {
       tabSteps.classList.remove("hidden");
       btnTSteps.classList.add("active");
-    } else if (target === "docs" && tabDocs && btnTDocs) {
-      tabDocs.classList.remove("hidden");
-      btnTDocs.classList.add("active");
-    } else if (target === "ai" && tabAi && btnTAi) {
+    } else if (target === "features") {
+      tabFeatures.classList.remove("hidden");
+      btnTFeatures.classList.add("active");
+    } else if (target === "ai") {
       tabAi.classList.remove("hidden");
       btnTAi.classList.add("active");
-    } else if (target === "colors" && tabColors && btnTColors) {
+    } else if (target === "colors") {
       tabColors.classList.remove("hidden");
       btnTColors.classList.add("active");
     }
   }
 
   if (btnTSteps) btnTSteps.onclick = () => switchTab("steps");
-  if (btnTDocs) btnTDocs.onclick = () => switchTab("docs");
+  if (btnTFeatures) btnTFeatures.onclick = () => switchTab("features");
   if (btnTAi) btnTAi.onclick = () => switchTab("ai");
   if (btnTColors) btnTColors.onclick = () => switchTab("colors");
 

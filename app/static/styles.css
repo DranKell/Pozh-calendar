@@ -668,7 +668,7 @@ textarea.inp { resize:vertical; }
 .floating-help-btn .f-help-icon { font-size: 16px; }
 
 /* ---------- МОДАЛЬНОЕ ОКНО ПОМОЩИ И ЛОГИКИ РАБОТЫ ---------- */
-.help-guide-modal { max-width: 860px !important; }
+.help-guide-modal { width: min(960px, 96vw) !important; max-width: 96vw !important; }
 .help-tabs {
   display: flex; gap: 8px; border-bottom: 1px solid var(--line);
   margin-bottom: 18px; padding-bottom: 4px;
