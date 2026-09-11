@@ -35,6 +35,67 @@ async def _no_cache_static(request, call_next):
     return response
 
 
+@app.on_event("startup")
+async def startup_notifier_worker():
+    """
+    Запуск фонового планировщика для ежедневной рассылки напоминаний ТО.
+    """
+    import asyncio
+    import logging
+    from datetime import datetime, date
+    from app.db.session import SessionLocal
+    from app.services.notifier import (
+        load_notifier_config,
+        check_and_send_scheduled_reminders,
+        broadcast_notification,
+    )
+
+    logger = logging.getLogger("notifier_worker")
+
+    async def _scheduler_loop():
+        # Небольшая пауза при запуске сервиса
+        await asyncio.sleep(5)
+        cfg = load_notifier_config()
+
+        # Тестовый пинг при старте, если включен в msg.cfg
+        if cfg["general"].get("send_startup_ping"):
+            try:
+                broadcast_notification(
+                    subject="Служба оповещений запущена",
+                    message_text="✅ Сервис «Календарь ТО» успешно запущен и готов к рассылке уведомлений."
+                )
+            except Exception as e:
+                logger.error("Ошибка отправки startup-ping: %s", e)
+
+        last_checked_date: Optional[date] = None
+
+        while True:
+            try:
+                now = datetime.now()
+                today = now.date()
+                cfg = load_notifier_config()
+                target_time_str = cfg["triggers"].get("daily_digest_time", "08:30")
+                try:
+                    th, tm = map(int, target_time_str.split(":"))
+                except Exception:
+                    th, tm = 8, 30
+
+                # Если наступило или прошло время рассылки, и сегодня еще не проверяли
+                if (now.hour > th or (now.hour == th and now.minute >= tm)) and last_checked_date != today:
+                    logger.info("Запуск плановой рассылки напоминаний за %s", today)
+                    check_and_send_scheduled_reminders(SessionLocal)
+                    last_checked_date = today
+
+            except Exception as exc:
+                logger.error("Ошибка в цикле фонового планировщика: %s", exc)
+
+            # Проверка каждые 60 секунд
+            await asyncio.sleep(60)
+
+    asyncio.create_task(_scheduler_loop())
+
+
+
 app.include_router(objects.router, prefix="/api/objects", tags=["objects"])
 app.include_router(works.router, prefix="/api/works", tags=["works"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])

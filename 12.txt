@@ -1,0 +1,5 @@
+Как протестировать после внесения данных в msg.cfg
+После того как вы впишете пароль от Mailcow и новый токен MAX в msg.cfg, выполните команду в терминале для моментальной проверки:
+
+bash
+python -c "from app.services.notifier import broadcast_notification; print(broadcast_notification('Тест системы ТО', 'Тестовое сообщение после настройки msg.cfg'))"

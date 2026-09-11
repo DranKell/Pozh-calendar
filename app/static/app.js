@@ -131,14 +131,78 @@ function listTable(rows) {
 async function loadDashboard() {
   const host = $("#page-dashboard");
   host.innerHTML = '<div class="empty"><span class="big">🦉</span>Считаем показатели…</div>';
-  const stats = await api("/api/dashboard/stats");
-  const up = await api("/api/dashboard/upcoming");
-  const over = await api("/api/dashboard/overdue");
+  const [stats, up, over, debtorsRes] = await Promise.all([
+    api("/api/dashboard/stats"),
+    api("/api/dashboard/upcoming"),
+    api("/api/dashboard/overdue"),
+    api("/api/dashboard/debtors?limit=5"),
+  ]);
   if (!stats.ok) { host.innerHTML = '<div class="empty"><span class="big">⚠️</span>Не удалось загрузить данные</div>'; return; }
   const s = stats.data;
   const upRows = (up.data || []).map(e => execTr(e)).join("");
   const overRows = (over.data || []).map(e => execTr(e, true)).join("");
+  const debtorsList = debtorsRes.ok ? debtorsRes.data : [];
+
+  // Выручка
+  const revPct = s.RevenuePercent || 0;
+  const revActualFormatted = fmtMoney(s.RevenueActual || 0);
+  const revPlannedFormatted = fmtMoney(s.RevenuePlanned || 0);
+
+  // SLA
+  const slaPct = s.SlaPercent || 0;
+  let slaTone = "ok";
+  if (slaPct < 75) slaTone = "danger";
+  else if (slaPct < 90) slaTone = "amber";
+
+  // Дебиторка
+  const debtTotalFormatted = fmtMoney(s.TotalDebt || 0);
+  const debtorsCount = s.DebtorsCount || 0;
+  const debtTone = (s.TotalDebt || 0) > 0 ? "danger" : "ok";
+
+  // Таблица дебиторов
+  let debtorsTableHtml = "";
+  if (debtorsList.length > 0) {
+    debtorsTableHtml =
+      '<table><thead><tr><th>Объект</th><th>Неоплачено</th><th>Долг</th><th></th></tr></thead><tbody>' +
+      debtorsList.map(d =>
+        '<tr class="clickable" data-action="debtor-open" data-objid="' + esc(d.ObjectId) + '">' +
+          '<td><b>' + esc(d.ObjectName) + '</b><div class="sub">' + esc(d.ObjectAddress || d.ObjectInn || "") + '</div></td>' +
+          '<td><span class="badge b-over">' + d.UnpaidInvoicesCount + ' сч.</span></td>' +
+          '<td class="mono" style="color:var(--ember);font-weight:700;">' + fmtMoney(d.TotalDebt) + '</td>' +
+          '<td style="text-align:right"><button class="btn btn-ghost btn-sm" data-action="nav-invoices-filter" data-objid="' + esc(d.ObjectId) + '" title="Открыть неоплаченные счета">Счета ↗</button></td>' +
+        '</tr>'
+      ).join("") +
+      '</tbody></table>';
+  } else {
+    debtorsTableHtml = '<div class="empty"><span class="big">🎉</span>Дебиторской задолженности нет. Все счета оплачены!</div>';
+  }
+
   host.innerHTML =
+    '<div class="stats stats-kpi">' +
+      '<div class="stat stat-featured moon">' +
+        '<div class="stat-label">💰 Выручка за месяц (План / Факт)</div>' +
+        '<div class="stat-value rev-val">' + revActualFormatted + ' <span class="stat-subval">/ ' + revPlannedFormatted + '</span></div>' +
+        '<div class="kpi-progress-wrap">' +
+          '<div class="kpi-progress-bar" style="width:' + Math.min(100, Math.max(0, revPct)) + '%"></div>' +
+        '</div>' +
+        '<div class="stat-note">Выполнение финансового плана: <b>' + revPct + '%</b></div>' +
+      '</div>' +
+
+      '<div class="stat ' + slaTone + '">' +
+        '<div class="stat-label">⏳ SLA соблюдения регламентов</div>' +
+        '<div class="stat-value" style="color:' + (slaPct >= 90 ? 'var(--moss)' : (slaPct >= 75 ? 'var(--amber-2)' : 'var(--ember)')) + '">' +
+          slaPct + '% <span class="stat-subval">(' + (s.DoneOnTime || 0) + ' вовремя)</span>' +
+        '</div>' +
+        '<div class="stat-note">' + (slaPct >= 90 ? 'Высокая дисциплина ТО' : 'Есть срывы плановых сроков') + '</div>' +
+      '</div>' +
+
+      '<div class="stat ' + debtTone + '">' +
+        '<div class="stat-label">🔴 Дебиторская задолженность</div>' +
+        '<div class="stat-value" style="color:' + ((s.TotalDebt || 0) > 0 ? 'var(--ember)' : 'var(--moss)') + '">' + debtTotalFormatted + '</div>' +
+        '<div class="stat-note">' + (debtorsCount > 0 ? (debtorsCount + ' объектов с задолженностью') : 'Задолженности нет') + '</div>' +
+      '</div>' +
+    '</div>' +
+
     '<div class="stats">' +
       statCard("Объектов", s.ObjectsCount, "на обслуживании", "") +
       statCard("Видов работ", s.WorksCount, "регламенты ПБ", "moon") +
@@ -146,14 +210,34 @@ async function loadDashboard() {
       statCard("В этом месяце", s.MonthDone + " / " + s.MonthTotal, "выполнено работ", "") +
       statCard("Просрочено", s.Overdue, s.Overdue > 0 ? "требуют внимания" : "всё по графику", s.Overdue > 0 ? "danger" : "ok") +
     "</div>" +
-    '<div class="dash-cols">' +
+
+    '<div class="dash-cols dash-cols-3">' +
       '<div class="panel"><h3>Ближайшие работы</h3>' +
         (upRows ? listTable(upRows) : '<div class="empty">Пока ничего не запланировано</div>') +
       "</div>" +
       '<div class="panel"><h3>Просроченные</h3>' +
         (overRows ? listTable(overRows) : '<div class="empty"><span class="big">✅</span>Просрочек нет</div>') +
       "</div>" +
+      '<div class="panel panel-debtors"><h3>Контроль дебиторской задолженности</h3>' +
+        debtorsTableHtml +
+      "</div>" +
     "</div>";
+
+  // Обработчики кликов на должников для мгновенного перехода в счета
+  $$("#page-dashboard [data-action='nav-invoices-filter']").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const objId = btn.dataset.objid;
+      showPage("invoices");
+      setTimeout(() => {
+        const objSelect = $("#invFObj");
+        if (objSelect) {
+          objSelect.value = objId;
+          objSelect.dispatchEvent(new Event("change"));
+        }
+      }, 100);
+    });
+  });
 }
 
 /* ---------- календарь ---------- */
@@ -2145,25 +2229,35 @@ async function checkAndUpdateAiStatus() {
   const pName = esc(aiStatusCache.display_name || "123-ФЗ");
   const provider = esc(aiStatusCache.provider_display || "AI");
 
+  const svgYandex = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#FC3F1D"/><path d="M13.8 6h2.1l-3.3 5.4 3.7 6.6h-2.2l-2.7-4.9-1.3 2.1v2.8H8V6h2.1v6.3l3.7-6.3z" fill="#FFF"/></svg>`;
+  const svgSber = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#21A038"/><path d="M6 12.2l3.8 3.8L18 7.8" stroke="#FFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const svgShield = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+
+  let activeLogo = svgShield;
+  const provNameLower = (aiStatusCache.provider || "").toLowerCase();
+  const dispNameLower = (aiStatusCache.provider_display || "").toLowerCase();
+
+  if (provNameLower.includes("gigachat") || dispNameLower.includes("gigachat")) {
+    activeLogo = svgSber;
+  } else if (provNameLower.includes("yandex") || dispNameLower.includes("yandex")) {
+    activeLogo = svgYandex;
+  }
+
   if (!aiStatusCache.enabled) {
-    // 🟡 ИИ ВЫКЛЮЧЕН В msg.cfg
     btn.classList.add("state-disabled");
-    btn.innerHTML = '<span class="ai-dot"></span>✍️ <span>ИИ: Выключен</span> <span class="ai-status-pill">ВРУЧНУЮ</span>';
+    btn.innerHTML = `<span class="ai-badge-logo">${svgShield}</span> <span>ИИ: Выключен</span> <span class="ai-status-pill">ВРУЧНУЮ</span>`;
     btn.title = "ИИ отключен в msg.cfg (enabled=false). Все поля заполняются полностью вручную.";
   } else if (aiStatusCache.status === "error") {
-    // 🔴 ОШИБКА API (неверный ключ, ошибка авторизации 401/403 или сеть)
     btn.classList.add("state-error");
-    btn.innerHTML = `<span class="ai-dot"></span>⚠️ <span>Ошибка API: ${provider}</span> <span class="ai-status-pill">ОШИБКА КЛЮЧА</span>`;
+    btn.innerHTML = `<span class="ai-badge-logo">${activeLogo}</span> <span>${provider}</span> <span class="ai-status-pill pill-error">ОШИБКА API</span>`;
     btn.title = `Внимание! API нейросети не отвечает или указан неверный ключ: ${aiStatusCache.error_detail || 'Ошибка'}. Включен резерв: 123-ФЗ.`;
   } else if (aiStatusCache.is_online && aiStatusCache.status === "online_llm") {
-    // 🟢 РЕАЛЬНО ОНЛАЙН: Проверенное подключение к внешней нейросети
     btn.classList.add("state-online");
-    btn.innerHTML = `<span class="ai-dot"></span>🤖 <span>${pName}</span> <span class="ai-status-pill">ОНЛАЙН</span>`;
+    btn.innerHTML = `<span class="ai-badge-logo">${activeLogo}</span> <span class="ai-badge-name">${provider}</span> <span class="ai-status-pill pill-active">АКТИВЕН</span>`;
     btn.title = `ИИ подключен и проверен (${provider}, модель ${aiStatusCache.model}). Доступен нейросетевой анализ.`;
   } else {
-    // 🟡 БЕЗ ВНЕШНЕГО API: Встроенная база 123-ФЗ
     btn.classList.add("state-disabled");
-    btn.innerHTML = '<span class="ai-dot"></span>✍️ <span>База норм 123-ФЗ</span> <span class="ai-status-pill">БЕЗ API</span>';
+    btn.innerHTML = `<span class="ai-badge-logo">${svgShield}</span> <span>База 123-ФЗ</span> <span class="ai-status-pill">БЕЗ API</span>`;
     btn.title = "API-ключ не указан в msg.cfg. Работает экспертная система норм пожарной безопасности 123-ФЗ.";
   }
 }

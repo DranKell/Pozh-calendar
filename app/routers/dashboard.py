@@ -11,6 +11,8 @@ from app.models.assignment import Assignment
 from app.models.execution import Execution
 from app.routers.executions import to_dict as exec_dict
 
+from app.models.invoice import Invoice
+
 router = APIRouter()
 
 
@@ -22,10 +24,54 @@ def stats(db: Session = Depends(get_db)):
         month_end = date(today.year + 1, 1, 1)
     else:
         month_end = date(today.year, today.month + 1, 1)
+
+    # Выполнения текущего месяца
     month_execs = db.query(Execution).filter(
         Execution.planned_date >= month_start,
         Execution.planned_date < month_end,
     ).all()
+
+    # Справочник цен назначений для расчета выручки
+    assign_ids = {e.assignment_id for e in month_execs if e.assignment_id}
+    assigns_map = {}
+    if assign_ids:
+        rows = db.query(Assignment.id, Assignment.price_per_unit).filter(Assignment.id.in_(assign_ids)).all()
+        assigns_map = {r[0]: (r[1] or 0.0) for r in rows}
+
+    rev_planned = 0.0
+    rev_actual = 0.0
+    done_on_time = 0
+    done_total = 0
+
+    for e in month_execs:
+        price = assigns_map.get(e.assignment_id, 0.0)
+        rev_planned += price
+        if e.status == "Выполнено":
+            done_total += 1
+            rev_actual += price
+            # Если выполнено в срок или раньше срока
+            if not e.actual_date or e.actual_date <= e.planned_date:
+                done_on_time += 1
+
+    rev_percent = round((rev_actual / rev_planned * 100), 1) if rev_planned > 0 else 0.0
+    sla_percent = round((done_on_time / done_total * 100), 1) if done_total > 0 else (100.0 if not month_execs else 0.0)
+
+    # Дебиторская задолженность по счетам (Invoice)
+    all_invoices = db.query(Invoice).all()
+    total_debt = 0.0
+    debtor_objects_set = set()
+    for inv in all_invoices:
+        inv_debt = max(0.0, (inv.total or 0.0) - (inv.paid_amount or 0.0))
+        if inv_debt > 0.01:
+            total_debt += inv_debt
+            if inv.object_id:
+                debtor_objects_set.add(inv.object_id)
+
+    overdue_count = db.query(Execution).filter(
+        Execution.status == "Запланировано",
+        Execution.planned_date < today,
+    ).count()
+
     return {
         "ok": True,
         "data": {
@@ -33,13 +79,48 @@ def stats(db: Session = Depends(get_db)):
             "WorksCount": db.query(WorkType).count(),
             "AssignmentsCount": db.query(Assignment).filter(Assignment.status == "Активно").count(),
             "MonthTotal": len(month_execs),
-            "MonthDone": sum(1 for e in month_execs if e.status == "Выполнено"),
-            "Overdue": db.query(Execution).filter(
-                Execution.status == "Запланировано",
-                Execution.planned_date < today,
-            ).count(),
+            "MonthDone": done_total,
+            "Overdue": overdue_count,
+            # Новые показатели CEO & ПБ:
+            "RevenuePlanned": round(rev_planned, 2),
+            "RevenueActual": round(rev_actual, 2),
+            "RevenuePercent": rev_percent,
+            "SlaPercent": sla_percent,
+            "DoneOnTime": done_on_time,
+            "TotalDebt": round(total_debt, 2),
+            "DebtorsCount": len(debtor_objects_set),
         },
     }
+
+
+@router.get("/debtors")
+def debtors(limit: int = 6, db: Session = Depends(get_db)):
+    """Топ объектов с дебиторской задолженностью"""
+    all_invoices = db.query(Invoice).order_by(Invoice.date.desc()).all()
+    debt_by_obj = {}
+    for inv in all_invoices:
+        debt = max(0.0, (inv.total or 0.0) - (inv.paid_amount or 0.0))
+        if debt > 0.01:
+            if inv.object_id not in debt_by_obj:
+                debt_by_obj[inv.object_id] = {
+                    "ObjectId": inv.object_id,
+                    "TotalDebt": 0.0,
+                    "UnpaidInvoicesCount": 0,
+                    "LatestInvoiceNumber": inv.number,
+                    "LatestInvoiceDate": inv.date.isoformat() if inv.date else None,
+                }
+            debt_by_obj[inv.object_id]["TotalDebt"] += debt
+            debt_by_obj[inv.object_id]["UnpaidInvoicesCount"] += 1
+
+    sorted_debtors = sorted(debt_by_obj.values(), key=lambda x: x["TotalDebt"], reverse=True)[:limit]
+    for d in sorted_debtors:
+        obj = db.query(Object).filter(Object.id == d["ObjectId"]).first()
+        d["ObjectName"] = obj.name if obj else "Неизвестный объект"
+        d["ObjectAddress"] = obj.address if obj else ""
+        d["ObjectInn"] = getattr(obj, "inn", "") if obj else ""
+        d["TotalDebtFormatted"] = round(d["TotalDebt"], 2)
+
+    return {"ok": True, "data": sorted_debtors}
 
 
 @router.get("/upcoming")

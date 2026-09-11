@@ -178,22 +178,36 @@ body {
 @keyframes rise { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none} }
 @keyframes pop { from{opacity:0; transform:scale(.9)} }
 
-/* ---------- статистика ---------- */
 .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:22px; }
+.stats-kpi { grid-template-columns: 1.5fr 1fr 1fr; margin-bottom: 16px; }
+@media (max-width: 1100px) {
+  .stats-kpi { grid-template-columns: 1fr; }
+}
 .stat { background:linear-gradient(160deg, var(--panel-2), var(--panel)); border:1px solid var(--line);
   border-radius:14px; padding:18px 18px 16px; position:relative; overflow:hidden; transition:transform .18s, border-color .18s; }
 .stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--amber); }
 .stat.moon::before { background:var(--moon); }
 .stat.ok::before { background:var(--moss); }
 .stat.danger::before { background:var(--ember); }
+.stat.amber::before { background:var(--amber-2); }
 .stat:hover { transform:translateY(-3px); border-color:var(--line-strong); }
-.stat-label { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-3); }
-.stat-value { font-family:var(--font-display); font-size:29px; font-weight:600; margin-top:9px; }
-.stat.danger .stat-value { color:var(--ember); animation:pulse 2.4s infinite; }
+.stat-label { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-3); font-weight:600; }
+.stat-value { font-family:var(--font-display); font-size:26px; font-weight:600; margin-top:9px; color:var(--text); }
+.stat-subval { font-size: 15px; color: var(--text-3); font-family: var(--font-body); font-weight: 500; }
+.stat-value.rev-val { font-size: 24px; color: var(--amber-2); }
+.kpi-progress-wrap { width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 6px; margin: 10px 0 6px; overflow: hidden; }
+.kpi-progress-bar { height: 100%; background: linear-gradient(90deg, var(--amber), var(--moss)); border-radius: 6px; transition: width 0.4s ease; }
+.stat.danger .stat-value { color:var(--ember); }
 .stat.ok .stat-value { color:var(--moss); }
 .stat-note { font-size:12px; color:var(--text-3); margin-top:6px; }
+.stat-note b { color: var(--text); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 .dash-cols { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; }
+.dash-cols-3 { grid-template-columns: 1fr 1fr 1.2fr; }
+@media (max-width: 1200px) {
+  .dash-cols-3 { grid-template-columns: 1fr; }
+}
+.panel-debtors table td { padding: 10px 8px; }
 
 /* ---------- панели / таблицы ---------- */
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; }
@@ -479,19 +493,28 @@ textarea.inp { resize:vertical; }
   box-shadow:0 0 16px rgba(239, 68, 68, 0.3);
 }
 
+.ai-badge-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+.ai-badge-name { font-weight: 700; letter-spacing: 0.02em; }
+
 .ai-status-pill {
   font-size:10px; font-family:var(--font-mono); font-weight:700;
-  padding:2px 6px; border-radius:4px; letter-spacing:0.04em; text-transform:uppercase;
+  padding:2px 7px; border-radius:6px; letter-spacing:0.04em; text-transform:uppercase;
+  transition: all 0.2s;
 }
 .state-online .ai-status-pill,
-.state-expert .ai-status-pill {
-  background:rgba(34, 197, 94, 0.2); color:#4ade80; border:1px solid rgba(34, 197, 94, 0.35);
+.pill-active {
+  background:rgba(34, 197, 94, 0.25); color:#4ade80; border:1px solid rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
 }
 .state-disabled .ai-status-pill {
   background:rgba(245, 165, 36, 0.2); color:var(--amber-2); border:1px solid rgba(245, 165, 36, 0.45);
 }
-.state-error .ai-status-pill {
-  background:rgba(239, 68, 68, 0.18); color:#f87171; border:1px solid rgba(239, 68, 68, 0.45);
+.state-error .ai-status-pill,
+.pill-error {
+  background:rgba(239, 68, 68, 0.2); color:#f87171; border:1px solid rgba(239, 68, 68, 0.5);
 }
 
 /* Круглая точка статуса */

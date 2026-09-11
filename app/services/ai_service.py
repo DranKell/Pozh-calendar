@@ -97,11 +97,28 @@ def load_ai_config() -> Dict[str, Any]:
     }
 
 
+DUMMY_KEY_MARKERS = (
+    "your_", "here", "token_secret", "ключ", "example",
+    "secret_here", "key_here", "folder_id_here", "none", "null"
+)
+
+def is_dummy_key(val: Optional[str]) -> bool:
+    if not val:
+        return True
+    s = str(val).strip().lower()
+    if len(s) < 15:
+        return True
+    return any(m in s for m in DUMMY_KEY_MARKERS)
+
+
 def get_gigachat_token(auth_key: str, scope: str = "GIGACHAT_API_PERS") -> Optional[str]:
     """Получение и кэширование OAuth-токена Сбер GigaChat"""
     import time
     import ssl
     import uuid
+
+    if is_dummy_key(auth_key):
+        return None
 
     now = time.time()
     if _GIGACHAT_TOKEN_CACHE["token"] and now < _GIGACHAT_TOKEN_CACHE["expires_at"]:
@@ -169,7 +186,7 @@ def _ping_single_provider(p_cfg: Dict[str, Any]) -> Dict[str, Any]:
     model = p_cfg.get("model", "").strip()
     display_provider = get_provider_display_name(provider, model)
 
-    if provider == "expert_rules" or not api_key:
+    if provider == "expert_rules" or not api_key or is_dummy_key(api_key):
         return {
             "status": "expert_offline",
             "is_online": False,
@@ -177,7 +194,7 @@ def _ping_single_provider(p_cfg: Dict[str, Any]) -> Dict[str, Any]:
             "display_name": "База 123-ФЗ (Без API)",
             "badge_text": "123-ФЗ",
             "badge_color": "amber",
-            "description": "API-ключ не задан в msg.cfg. Работает экспертная нормативная база 123-ФЗ/СП.",
+            "description": "API-ключ не задан или содержит шаблонное значение в msg.cfg. Работает экспертная нормативная база 123-ФЗ/СП.",
             "error_detail": None,
         }
 
@@ -532,6 +549,162 @@ def get_expert_rules_recommendations(
     }
 
 
+def _invoke_single_llm_advisor(
+    p_cfg: Dict[str, Any],
+    ai_cfg: Dict[str, Any],
+    user_prompt: str,
+    catalog_works: List[Dict[str, Any]],
+    existing_work_codes: List[str],
+    category: str,
+    functional_hazard: str,
+    fire_hazard_category: str,
+    total_area: float,
+    floors: int,
+) -> Optional[Dict[str, Any]]:
+    """Единичный вызов конкретной LLM с парсингом ответа"""
+    api_key = p_cfg.get("api_key")
+    if not api_key or is_dummy_key(api_key):
+        return None
+
+    import ssl
+    provider = p_cfg.get("provider", "yandexgpt").lower()
+    model = p_cfg.get("model", "")
+    api_url = p_cfg.get("api_url", "")
+
+    is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
+    is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
+    ssl_ctx = None
+
+    if is_gigachat:
+        token = get_gigachat_token(api_key, p_cfg.get("scope", "GIGACHAT_API_PERS"))
+        if not token:
+            return None
+        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        payload = {
+            "model": model or "GigaChat",
+            "temperature": ai_cfg.get("temperature", 0.2),
+            "messages": [
+                {"role": "system", "content": ai_cfg.get("system_prompt", "")},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    elif is_yandex:
+        endpoint = api_url
+        folder_id = p_cfg.get("folder_id", "").strip()
+        auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": auth_header,
+        }
+        if folder_id:
+            headers["x-folder-id"] = folder_id
+
+        yandex_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
+        payload = {
+            "modelUri": yandex_model,
+            "completionOptions": {
+                "stream": False,
+                "temperature": ai_cfg.get("temperature", 0.2),
+                "maxTokens": 1500,
+            },
+            "messages": [
+                {"role": "system", "text": ai_cfg.get("system_prompt", "")},
+                {"role": "user", "text": user_prompt},
+            ],
+        }
+    else:
+        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        payload = {
+            "model": model,
+            "temperature": ai_cfg.get("temperature", 0.2),
+            "messages": [
+                {"role": "system", "content": ai_cfg.get("system_prompt", "")},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+
+    try:
+        req_data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=req_data, headers=headers, method="POST")
+        timeout = ai_cfg.get("request_timeout_seconds", 12)
+        urlopen_kwargs = {"timeout": timeout}
+        if ssl_ctx:
+            urlopen_kwargs["context"] = ssl_ctx
+
+        with urllib.request.urlopen(req, **urlopen_kwargs) as resp:
+            body = resp.read().decode("utf-8")
+            result = json.loads(body)
+            
+            if is_yandex:
+                content = result["result"]["alternatives"][0]["message"]["text"]
+                cleaned = content.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("\n", 1)[-1]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned.rsplit("```", 1)[0]
+                parsed = json.loads(cleaned)
+            elif is_gigachat:
+                content = result["choices"][0]["message"]["content"]
+                cleaned = content.strip()
+                if "```json" in cleaned:
+                    cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0]
+                elif "```" in cleaned:
+                    cleaned = cleaned.split("```", 1)[1].split("```", 1)[0]
+                parsed = json.loads(cleaned.strip())
+            else:
+                content = result["choices"][0]["message"]["content"]
+                parsed = json.loads(content)
+
+            recs = []
+            rec_codes = parsed.get("recommended_codes", [])
+            justifs = parsed.get("justifications", {})
+
+            for code in rec_codes:
+                wk = next((w for w in catalog_works if w["code"] == code), None)
+                if wk:
+                    recs.append({
+                        "work_code": wk["code"],
+                        "work_name": wk["name"],
+                        "frequency": wk.get("frequency", "Ежеквартально"),
+                        "priority": "Критический" if code in ["ПБ-01.01", "ПБ-01.02", "ПБ-03.02"] else "Высокий",
+                        "law_ref": "Нормы ПБ (СП 484 / СП 486 / ППР 1479)",
+                        "reason": justifs.get(code, "Требуется в соответствии с характеристиками объекта"),
+                        "is_assigned": code in existing_work_codes,
+                    })
+
+            return {
+                "status": "success",
+                "provider": f"llm_{provider}",
+                "object_summary": {
+                    "functional_hazard": functional_hazard,
+                    "fire_hazard_category": fire_hazard_category,
+                    "total_area": total_area,
+                    "floors": floors,
+                    "category": category,
+                },
+                "summary": parsed.get("summary", ""),
+                "regulations": parsed.get("regulations", []),
+                "recommendations": recs,
+                "unassigned_count": sum(1 for r in recs if not r["is_assigned"]),
+            }
+    except Exception as e:
+        logger.warning("LLM API call (%s) failed: %s", provider, e)
+        return None
+
+
 def call_llm_advisor(
     ai_cfg: Dict[str, Any],
     category: str,
@@ -542,16 +715,10 @@ def call_llm_advisor(
     catalog_works: List[Dict[str, Any]],
     existing_work_codes: List[str],
 ) -> Optional[Dict[str, Any]]:
-    """Вызов внешнего LLM через OpenAI-совместимый API"""
-    api_key = ai_cfg.get("api_key")
-    if not api_key:
-        return None
-
-    import ssl
-    provider = ai_cfg.get("provider", "yandexgpt").lower()
-    model = ai_cfg.get("model", "yandexgpt/latest")
-    api_url = ai_cfg.get("api_url", "https://llm.api.cloud.yandex.net/foundationModels/v1/completion")
-
+    """
+    Вызов внешнего LLM с автоматическим отказоустойчивым перебором (Failover).
+    Если YandexGPT дает ошибку сети/VPN/таймаут -> мгновенно на лету переключается на GigaChat!
+    """
     works_str = "\n".join(
         [f"- [{w['code']}] {w['name']} ({w.get('frequency', '')}, {w.get('price', 0)} руб.)" for w in catalog_works]
     )
@@ -580,146 +747,30 @@ def call_llm_advisor(
   }}
 }}
 """
-    is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
-    is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
 
-    ssl_ctx = None
+    provider_configs = ai_cfg.get("provider_configs", [])
+    if not provider_configs:
+        provider_configs = [ai_cfg]
 
-    if is_gigachat:
-        token = get_gigachat_token(api_key, ai_cfg.get("scope", "GIGACHAT_API_PERS"))
-        if not token:
-            return None
-        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
-        payload = {
-            "model": model or "GigaChat",
-            "temperature": ai_cfg.get("temperature", 0.2),
-            "messages": [
-                {"role": "system", "content": ai_cfg.get("system_prompt", "")},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
+    for p_cfg in provider_configs:
+        if is_dummy_key(p_cfg.get("api_key")):
+            continue
+        res = _invoke_single_llm_advisor(
+            p_cfg=p_cfg,
+            ai_cfg=ai_cfg,
+            user_prompt=user_prompt,
+            catalog_works=catalog_works,
+            existing_work_codes=existing_work_codes,
+            category=category,
+            functional_hazard=functional_hazard,
+            fire_hazard_category=fire_hazard_category,
+            total_area=total_area,
+            floors=floors,
+        )
+        if res:
+            return res
 
-    elif is_yandex:
-        endpoint = api_url
-        folder_id = ai_cfg.get("folder_id", "").strip()
-        auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": auth_header,
-        }
-        if folder_id:
-            headers["x-folder-id"] = folder_id
-
-        yandex_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
-        payload = {
-            "modelUri": yandex_model,
-            "completionOptions": {
-                "stream": False,
-                "temperature": ai_cfg.get("temperature", 0.2),
-                "maxTokens": 1500,
-            },
-            "messages": [
-                {"role": "system", "text": ai_cfg.get("system_prompt", "")},
-                {"role": "user", "text": user_prompt},
-            ],
-        }
-    else:
-        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        folder_id = ai_cfg.get("folder_id", "").strip()
-        if folder_id:
-            headers["x-folder-id"] = folder_id
-
-        payload = {
-            "model": model,
-            "temperature": ai_cfg.get("temperature", 0.2),
-            "messages": [
-                {"role": "system", "content": ai_cfg.get("system_prompt", "")},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},
-        }
-
-    try:
-        req_data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(endpoint, data=req_data, headers=headers, method="POST")
-        timeout = ai_cfg.get("request_timeout_seconds", 15)
-        urlopen_kwargs = {"timeout": timeout}
-        if ssl_ctx:
-            urlopen_kwargs["context"] = ssl_ctx
-
-        with urllib.request.urlopen(req, **urlopen_kwargs) as resp:
-            body = resp.read().decode("utf-8")
-            result = json.loads(body)
-            
-            if is_yandex:
-                # Ответ YandexGPT: result["result"]["alternatives"][0]["message"]["text"]
-                content = result["result"]["alternatives"][0]["message"]["text"]
-                cleaned = content.strip()
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.split("\n", 1)[-1]
-                    if cleaned.endswith("```"):
-                        cleaned = cleaned.rsplit("```", 1)[0]
-                parsed = json.loads(cleaned)
-            elif is_gigachat:
-                # Ответ GigaChat: result["choices"][0]["message"]["content"]
-                content = result["choices"][0]["message"]["content"]
-                cleaned = content.strip()
-                if "```json" in cleaned:
-                    cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0]
-                elif "```" in cleaned:
-                    cleaned = cleaned.split("```", 1)[1].split("```", 1)[0]
-                parsed = json.loads(cleaned.strip())
-            else:
-                content = result["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-
-            # Сопоставляем со справочником
-            recs = []
-            rec_codes = parsed.get("recommended_codes", [])
-            justifs = parsed.get("justifications", {})
-
-            for code in rec_codes:
-                wk = next((w for w in catalog_works if w["code"] == code), None)
-                if wk:
-                    recs.append({
-                        "work_code": wk["code"],
-                        "work_name": wk["name"],
-                        "frequency": wk.get("frequency", "Ежеквартально"),
-                        "priority": "Критический" if code in ["ПБ-01.01", "ПБ-01.02", "ПБ-03.02"] else "Высокий",
-                        "law_ref": "Нормы ПБ (СП 484 / СП 486 / ППР 1479)",
-                        "reason": justifs.get(code, "Требуется в соответствии с характеристиками объекта"),
-                        "is_assigned": code in existing_work_codes,
-                    })
-
-            return {
-                "status": "success",
-                "provider": f"llm_{ai_cfg.get('model')}",
-                "object_summary": {
-                    "functional_hazard": functional_hazard,
-                    "fire_hazard_category": fire_hazard_category,
-                    "total_area": total_area,
-                    "floors": floors,
-                    "category": category,
-                },
-                "summary": parsed.get("summary", ""),
-                "regulations": parsed.get("regulations", []),
-                "recommendations": recs,
-                "unassigned_count": sum(1 for r in recs if not r["is_assigned"]),
-            }
-    except Exception as e:
-        logger.warning("LLM API call failed, falling back to expert rules: %s", e)
-        return None
+    return None
 
 
 def get_preset_for_building_type(building_type: str) -> Dict[str, Any]:
@@ -790,76 +841,66 @@ def answer_assistant_question(question: str, context_page: str = "", ai_cfg: Opt
     """
     q_lower = (question or "").lower().strip()
     ai_cfg = ai_cfg or load_ai_config()
-
-    # Попытка вызова LLM (если онлайн)
     health = verify_llm_connection(ai_cfg, force_check=False)
     if health.get("is_online") and ai_cfg.get("enabled", True):
         active_p_cfg = health.get("active_config", ai_cfg)
-        merged_cfg = {**ai_cfg, **active_p_cfg}
-        api_key = merged_cfg.get("api_key")
-        provider = merged_cfg.get("provider", "auto").lower()
-        model = merged_cfg.get("model", "")
-        api_url = merged_cfg.get("api_url", "")
-        is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
-        is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
+        provider_configs = ai_cfg.get("provider_configs", [active_p_cfg])
+        for p_cfg in provider_configs:
+            if is_dummy_key(p_cfg.get("api_key")):
+                continue
+            merged_cfg = {**ai_cfg, **p_cfg}
+            api_key = merged_cfg.get("api_key")
+            provider = merged_cfg.get("provider", "auto").lower()
+            model = merged_cfg.get("model", "")
+            api_url = merged_cfg.get("api_url", "")
+            is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
+            is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
 
-        system_instruction = (
-            "Ты — встроенный дружелюбный консультант программы «Календарь ТО» (учёт техобслуживания систем пожарной безопасности: АПС, СОУЭ, ВПВ, АУПТ, огнетушители по 123-ФЗ и СП).\n"
-            "Твоя задача — максимально понятно, простыми словами объяснить новичку логику работы системы, куда нажать и что делать.\n"
-            "Основные разделы:\n"
-            "1. «Объекты» — карточки зданий, где задаются адрес, площадь, этажность, класс ФПО (Ф1.1-Ф5.3) и категория пожароопасности (А, Б, В, Г, Д).\n"
-            "2. «Виды работ» — справочник регламентов ТО (шифры ПБ-01.XX - ПБ-10.XX).\n"
-            "3. «Назначения» — привязка работы к объекту на период (например, на год) с выбором периодичности. Система сама рассчитывает даты!\n"
-            "4. «Календарь» — интерактивная сетка дат со статусами (синий - план, зеленый - выполнено, красный - просрочено, желтый - перенос). В модалке дня можно закрыть всё в 1 клик.\n"
-            "5. «Журнал» — журнал выполненных и запланированных работ с фильтрами и историей.\n"
-            "6. «Счета» — выставление счетов и актов от разных юридических лиц с печатью А4.\n"
-            "Отвечай кратко, структурированно, доброжелательно, используй списки и эмодзи."
-        )
-
-        try:
-            if is_gigachat:
-                token = get_gigachat_token(api_key, merged_cfg.get("scope", "GIGACHAT_API_PERS"))
-                if token:
-                    endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
-                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+            try:
+                if is_gigachat:
+                    token = get_gigachat_token(api_key, merged_cfg.get("scope", "GIGACHAT_API_PERS"))
+                    if token:
+                        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+                        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+                        payload = {
+                            "model": model or "GigaChat",
+                            "temperature": 0.3,
+                            "messages": [
+                                {"role": "system", "content": system_instruction},
+                                {"role": "user", "content": f"Вопрос пользователя (находится в разделе '{context_page}'): {question}"}
+                            ]
+                        }
+                        import ssl
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                        with urllib.request.urlopen(req, timeout=12, context=ctx) as resp:
+                            body = json.loads(resp.read().decode("utf-8"))
+                            ans = body["choices"][0]["message"]["content"].strip()
+                            return {"ok": True, "answer": ans, "source": f"ИИ (GigaChat)"}
+                elif is_yandex:
+                    folder_id = merged_cfg.get("folder_id", "").strip()
+                    auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
+                    headers = {"Content-Type": "application/json", "Authorization": auth_header}
+                    if folder_id: headers["x-folder-id"] = folder_id
+                    y_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
                     payload = {
-                        "model": model or "GigaChat",
-                        "temperature": 0.3,
+                        "modelUri": y_model,
+                        "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 800},
                         "messages": [
-                            {"role": "system", "content": system_instruction},
-                            {"role": "user", "content": f"Вопрос пользователя (находится в разделе '{context_page}'): {question}"}
+                            {"role": "system", "text": system_instruction},
+                            {"role": "user", "text": f"Вопрос пользователя (раздел '{context_page}'): {question}"}
                         ]
                     }
-                    import ssl
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                    with urllib.request.urlopen(req, timeout=12, context=ctx) as resp:
+                    req = urllib.request.Request(api_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                    with urllib.request.urlopen(req, timeout=12) as resp:
                         body = json.loads(resp.read().decode("utf-8"))
-                        ans = body["choices"][0]["message"]["content"].strip()
-                        return {"ok": True, "answer": ans, "source": f"ИИ ({health.get('display_name', 'GigaChat')})"}
-            elif is_yandex:
-                folder_id = merged_cfg.get("folder_id", "").strip()
-                auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
-                headers = {"Content-Type": "application/json", "Authorization": auth_header}
-                if folder_id: headers["x-folder-id"] = folder_id
-                y_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
-                payload = {
-                    "modelUri": y_model,
-                    "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 800},
-                    "messages": [
-                        {"role": "system", "text": system_instruction},
-                        {"role": "user", "text": f"Вопрос пользователя (раздел '{context_page}'): {question}"}
-                    ]
-                }
-                req = urllib.request.Request(api_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=12) as resp:
-                    body = json.loads(resp.read().decode("utf-8"))
-                    ans = body["result"]["alternatives"][0]["message"]["text"].strip()
-                    return {"ok": True, "answer": ans, "source": "ИИ (YandexGPT)"}
-        except Exception as e:
-            logger.warning("Ошибка генерации ответа LLM консультанта: %s", e)
+                        ans = body["result"]["alternatives"][0]["message"]["text"].strip()
+                        return {"ok": True, "answer": ans, "source": "ИИ (YandexGPT)"}
+            except Exception as e:
+                logger.warning("Провайдер %s недоступен: %s, переключаюсь на следующий...", provider, e)
+                continue
 
     # Экспертная база знаний (Offline FAQ)
     faq_items = [
@@ -982,7 +1023,7 @@ def ai_parse_organizations(raw_text: str) -> Dict[str, Any]:
             prov_name = p_cfg.get("provider", "").lower()
             if prov_name not in ("yandexgpt", "gigachat") and "yandex" not in prov_name and "gigachat" not in prov_name:
                 continue
-            if not p_cfg.get("api_key"):
+            if not p_cfg.get("api_key") or is_dummy_key(p_cfg.get("api_key")):
                 continue
 
             llm_result = _call_llm_parse_orgs(p_cfg, raw_text[:12000])
@@ -1467,17 +1508,20 @@ def generate_inspector_reminder_text(exec_info: Dict[str, Any], days_left: int, 
     inspector_text = ""
 
     if health.get("is_online") and ai_cfg.get("enabled", True):
-        p_cfg = health.get("active_config", ai_cfg)
-        merged_cfg = {**ai_cfg, **p_cfg}
-        api_key = merged_cfg.get("api_key")
-        provider = merged_cfg.get("provider", "").lower()
-        model = merged_cfg.get("model", "")
-        api_url = merged_cfg.get("api_url", "")
+        provider_configs = ai_cfg.get("provider_configs", [health.get("active_config", ai_cfg)])
+        for p_cfg in provider_configs:
+            if is_dummy_key(p_cfg.get("api_key")):
+                continue
+            merged_cfg = {**ai_cfg, **p_cfg}
+            api_key = merged_cfg.get("api_key")
+            provider = merged_cfg.get("provider", "").lower()
+            model = merged_cfg.get("model", "")
+            api_url = merged_cfg.get("api_url", "")
 
-        is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
-        is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
+            is_gigachat = provider == "gigachat" or "gigachat.devices.sberbank" in api_url
+            is_yandex = provider == "yandexgpt" or "cloud.yandex" in api_url
 
-        prompt = f"""
+            prompt = f"""
 Ты — строгий государственный инспектор пожарного надзора.
 Сформируй ОДНО-ДВА коротких, авторитетных и емких предложения напоминания о приближающейся плановой проверке / регламентном техобслуживании:
 - Объект: {obj_name}
@@ -1490,43 +1534,48 @@ def generate_inspector_reminder_text(exec_info: Dict[str, Any], days_left: int, 
 - Максимум 25-35 слов!
 - Начни сразу с сути или предупреждения.
 """
-        try:
-            if is_gigachat:
-                token = get_gigachat_token(api_key, merged_cfg.get("scope", "GIGACHAT_API_PERS"))
-                if token:
-                    endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
-                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+            try:
+                if is_gigachat:
+                    token = get_gigachat_token(api_key, merged_cfg.get("scope", "GIGACHAT_API_PERS"))
+                    if token:
+                        endpoint = api_url + ("/chat/completions" if not api_url.endswith("/chat/completions") else "")
+                        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+                        payload = {
+                            "model": model or "GigaChat",
+                            "temperature": 0.2,
+                            "messages": [{"role": "user", "content": prompt}],
+                        }
+                        import ssl
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                        with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+                            body = json.loads(resp.read().decode("utf-8"))
+                            inspector_text = body["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+                            if inspector_text:
+                                break
+                elif is_yandex:
+                    folder_id = merged_cfg.get("folder_id", "").strip()
+                    auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
+                    headers = {"Content-Type": "application/json", "Authorization": auth_header}
+                    if folder_id:
+                        headers["x-folder-id"] = folder_id
+                    y_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
                     payload = {
-                        "model": model or "GigaChat",
-                        "temperature": 0.2,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "modelUri": y_model,
+                        "completionOptions": {"stream": False, "temperature": 0.2, "maxTokens": 150},
+                        "messages": [{"role": "user", "text": prompt}],
                     }
-                    import ssl
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                    with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+                    req = urllib.request.Request(api_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+                    with urllib.request.urlopen(req, timeout=8) as resp:
                         body = json.loads(resp.read().decode("utf-8"))
-                        inspector_text = body["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-            elif is_yandex:
-                folder_id = merged_cfg.get("folder_id", "").strip()
-                auth_header = f"Api-Key {api_key}" if not api_key.startswith("Bearer ") else api_key
-                headers = {"Content-Type": "application/json", "Authorization": auth_header}
-                if folder_id:
-                    headers["x-folder-id"] = folder_id
-                y_model = model if "/" in model else f"gpt://{folder_id}/{model}" if folder_id else model
-                payload = {
-                    "modelUri": y_model,
-                    "completionOptions": {"stream": False, "temperature": 0.2, "maxTokens": 150},
-                    "messages": [{"role": "user", "text": prompt}],
-                }
-                req = urllib.request.Request(api_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    body = json.loads(resp.read().decode("utf-8"))
-                    inspector_text = body["result"]["alternatives"][0]["message"]["text"].strip().strip('"').strip("'")
-        except Exception as e:
-            logger.warning("Ошибка генерации текста инспектора через LLM: %s", e)
+                        inspector_text = body["result"]["alternatives"][0]["message"]["text"].strip().strip('"').strip("'")
+                        if inspector_text:
+                            break
+            except Exception as e:
+                logger.warning("Ошибка генерации текста инспектора через LLM (%s): %s", provider, e)
+                continue
 
     # Офлайн-шаблоны эксперта 123-ФЗ/ППР 1479 при отсутствии внешнего API
     if not inspector_text:
